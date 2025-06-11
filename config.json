@@ -1,12 +1,5 @@
 {
-    "watch_paths": [
-        "C:\\Users\\Shriswarup Sawant\\Downloads",
-        "C:\\Users\\Shriswarup Sawant\\Documents\\Shriswarup\\Acad",
-        "C:\\Users\\Shriswarup Sawant\\Documents\\Shriswarup\\Acad\\Capstone"
-    ],
-    "sweeped_paths": [
-        "C:\\Users\\Shriswarup Sawant\\Documents\\Shriswarup\\Acad\\Capstone",
-        "C:\\Users\\Shriswarup Sawant\\Documents\\Shriswarup\\Acad",
-        "C:\\Users\\Shriswarup Sawant\\Downloads"
-    ]
+    "skip_hidden": true,
+    "skip_zero_byte": true,
+    "allowed_extensions": [".txt", ".pdf", ".docx", ".jpg"]
 }

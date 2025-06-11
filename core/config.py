@@ -1,10 +1,26 @@
-import os
+# core/config.py
 
-# Root of your project (where main.py lives)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+import json
+from pathlib import Path
 
-# Config folder inside your project
-CONFIG_DIR = os.path.join(BASE_DIR, 'config')
+DEFAULT_CONFIG = {
+    "skip_hidden": True,
+    "skip_zero_byte": True,
+    "allowed_extensions": [],  # empty = all
+}
 
-# Full path to config.json
-CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
+CONFIG_FILE = Path("config.json")
+
+def load_config() -> dict:
+    if CONFIG_FILE.exists():
+        with open(CONFIG_FILE, "r") as f:
+            try:
+                data = json.load(f)
+                return {**DEFAULT_CONFIG, **data}
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON in config file: {e}")
+    return DEFAULT_CONFIG
+
+def save_config(config: dict) -> None:
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=4)
