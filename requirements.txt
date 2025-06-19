@@ -1,0 +1,6 @@
+scikit-learn
+pdfplumber
+python-docx
+watchdog
+APScheduler
+plyer
