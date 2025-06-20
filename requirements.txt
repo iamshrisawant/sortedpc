@@ -4,3 +4,4 @@ python-docx
 watchdog
 APScheduler
 plyer
+sentence_transformers
