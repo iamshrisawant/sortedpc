@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 sortedpc.db
+*.pkl
+*rules.txt
