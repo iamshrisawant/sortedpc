@@ -1,8 +1,11 @@
+#main.py
 import sys
 from data.iterator import get_valid_files
 from data.feature_builder import build_features
 
 from db.storage import init_db, insert_feature
+
+from models.layerOne.pipeline import run_pipeline
 
 def main(input_dir):
     all_files = get_valid_files(input_dir)
@@ -22,4 +25,4 @@ def main(input_dir):
 if __name__ == "__main__":
     test_path = r"C:\Users\Shriswarup Sawant\Documents\Shriswarup\Acad"
     main(test_path)
-
+    run_pipeline()

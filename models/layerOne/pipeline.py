@@ -2,10 +2,19 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from models.layerOne.decision_tree import load_data_from_db, train_decision_tree, save_model, extract_rules
+from models.layerOne.decision_tree import (
+    load_data_from_db,
+    balance_folders,
+    prepare_features,
+    train_decision_tree,
+    save_model,
+    extract_rules,
+    classify_with_fallback
+)
 from models.layerOne.pattern_analyzer import generalize_rules
 from models.layerOne.semantic_clustering import load_rules, cluster_rules
 
+# --- Paths ---
 DB_PATH = "output/features.db"
 MODEL_DIR = "models/layerOne"
 MODEL_PATH = os.path.join(MODEL_DIR, "tree_model.pkl")
@@ -19,36 +28,39 @@ def ensure_dirs():
 def run_pipeline():
     ensure_dirs()
 
-    # Step 1: Load data from database
-    print("[1] Loading features from DB...")
+    print("\n[1] 📥 Loading features from DB...")
     df = load_data_from_db(DB_PATH)
+    df = balance_folders(df)
 
-    # Step 2: Train decision tree
-    print("[2] Training decision tree...")
-    clf, feature_names = train_decision_tree(df)
+    print("[2] 🧪 Preparing features...")
+    X, y, _ = prepare_features(df)
+    feature_names = X.columns.tolist()
+
+    print("[3] 🌳 Training Decision Tree...")
+    clf = train_decision_tree(X, y)
     save_model(clf, MODEL_PATH)
 
-    # Step 3: Extract rules
-    print("[3] Extracting decision rules...")
+    print("[4] 🧾 Extracting decision rules...")
     rules_text = extract_rules(clf, feature_names)
-    with open(RAW_RULES_PATH, "w",encoding="utf-8") as f:
+    with open(RAW_RULES_PATH, "w", encoding="utf-8") as f:
         f.write(rules_text)
 
-    # Step 4: Generalize rules
-    print("[4] Generalizing rules...")
+    print("[5] 📄 Generalizing rules...")
     generalized = generalize_rules(rules_text)
     with open(GENERALIZED_RULES_PATH, "w", encoding="utf-8") as f:
         f.write(generalized)
 
-    # Step 5: Semantic clustering
-    print("[5] Clustering generalized rules...")
+    print("[6] 🤖 Semantic clustering...")
     rules = load_rules(GENERALIZED_RULES_PATH)
     clustered = cluster_rules(rules)
     with open(CLUSTERED_RULES_PATH, "w", encoding="utf-8") as f:
         for rule, label in clustered:
             f.write(f"[Cluster {label}] {rule}\n")
 
-    print("✅ Layer 1 pipeline completed.")
+    print("[7] 🩺 Auditing fallback classification coverage...")
+    classify_with_fallback(clf, X, y)
+
+    print("\n✅ Layer 1 pipeline completed.\n")
 
 if __name__ == "__main__":
     run_pipeline()
