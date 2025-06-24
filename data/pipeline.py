@@ -1,8 +1,8 @@
 # data/pipeline.py
 import sys
-from extractor import extract_metadata
-from tokenizer import tokenize_file
-from builder import init_db, insert_features
+from .extractor import extract_metadata
+from .tokenizer import tokenize_file
+from .builder import init_db, insert_features
 
 def run_pipeline(file_path, verbose=True):
     if verbose:
