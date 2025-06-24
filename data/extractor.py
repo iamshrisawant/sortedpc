@@ -1,12 +1,15 @@
+# data/extractor.py
 import os
-from datetime import datetime
+import datetime
 
 def extract_metadata(file_path):
-    stat = os.stat(file_path)
-    return {
+    stat_info = os.stat(file_path)
+    metadata = {
         "name": os.path.basename(file_path),
-        "path": file_path,
-        "parent": os.path.dirname(file_path),
-        "date": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-        "type": os.path.splitext(file_path)[1].lower()
+        "directory": os.path.dirname(file_path),
+        "type": os.path.splitext(file_path)[1].lstrip('.'),
+        "size": stat_info.st_size,
+        "created": datetime.datetime.fromtimestamp(stat_info.st_ctime).isoformat(),
+        "parent_folder": os.path.basename(os.path.dirname(file_path))
     }
+    return metadata

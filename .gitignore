@@ -1,6 +1,6 @@
 .venv/
 __pycache__/
 *.pyc
-sortedpc.db
+*.db
 *.pkl
 *rules.txt

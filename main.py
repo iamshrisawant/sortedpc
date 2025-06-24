@@ -1,7 +1,7 @@
 #main.py
 import sys
 from data.iterator import get_valid_files
-from data.feature_builder import build_features
+from data.builder import build_features
 
 from db.storage import init_db, insert_feature
 
