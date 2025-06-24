@@ -5,4 +5,9 @@ watchdog
 APScheduler
 plyer
 sentence_transformers
-json
+openpyxl
+PyPDF2
+python-docx
+python-pptx
+beautifulsoup4
+nltk
