@@ -11,3 +11,6 @@ python-docx
 python-pptx
 beautifulsoup4
 nltk
+pandas
+xgboost
+numpy

@@ -4,3 +4,7 @@ __pycache__/
 *.db
 *.pkl
 *rules.txt
+*.joblib
+*.log
+*.csv
+/ui
