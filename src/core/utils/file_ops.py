@@ -1,19 +1,24 @@
 from pathlib import Path
 import shutil
+from datetime import datetime
 
-def move_file(src: Path, dest_dir: Path) -> Path:
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_path = dest_dir / src.name
-    return shutil.move(str(src), str(resolve_conflict(dest_path)))
+from logger import log_move
 
-def rename_file(src: Path, new_name: str) -> Path:
-    new_path = src.with_name(new_name)
-    return src.rename(resolve_conflict(new_path))
+def move_file(src: Path, dest_dir: Path, similar_dirs: list[str] = [], manual_dir: Path = None) -> Path:
 
-def resolve_conflict(path: Path) -> Path:
-    counter = 1
-    new_path = path
-    while new_path.exists():
-        new_path = path.with_stem(f"{path.stem}_{counter}")
-        counter += 1
-    return new_path
+    target_dir = manual_dir or dest_dir
+    target_dir = Path(target_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    dest = target_dir / src.name
+
+    if dest.exists():
+        if dest.stat().st_mtime < src.stat().st_mtime:
+            shutil.copy2(src, dest)  # Replace (preserve metadata)
+            log_move(src.name, target_dir, similar_dirs, replaced=True)
+        else:
+            log_move(src.name, target_dir, similar_dirs, replaced=False)
+    else:
+        shutil.copy2(src, dest)
+        log_move(src.name, target_dir, similar_dirs, replaced=False)
+
+    return dest
