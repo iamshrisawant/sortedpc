@@ -2,53 +2,32 @@
 <ui version="4.0">
  <class>LogRow</class>
  <widget class="QWidget" name="LogRow">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>400</width>
-    <height>300</height>
-   </rect>
-  </property>
-  <property name="windowTitle">
-   <string>Form</string>
-  </property>
-  <widget class="QWidget" name="horizontalLayoutWidget">
-   <property name="geometry">
-    <rect>
-     <x>20</x>
-     <y>100</y>
-     <width>331</width>
-     <height>41</height>
-    </rect>
-   </property>
-   <layout class="QHBoxLayout" name="logRowLayout">
-    <item>
-     <widget class="QLabel" name="lblFilename">
+  <layout class="QHBoxLayout" name="logRowLayout">
+   <item>
+    <widget class="QLabel" name="lblFilename">
+     <property name="text">
+      <string>TextLabel</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="cbPathSuggestions">
+     <property name="editable">
+      <bool>true</bool>
+     </property>
+     <item>
       <property name="text">
-       <string>TextLabel</string>
+       <string>predictions</string>
       </property>
-     </widget>
-    </item>
-    <item>
-     <widget class="QComboBox" name="cbPathSuggestions">
-      <property name="editable">
-       <bool>true</bool>
+     </item>
+     <item>
+      <property name="text">
+       <string>Other...</string>
       </property>
-      <item>
-       <property name="text">
-        <string>predictions</string>
-       </property>
-      </item>
-      <item>
-       <property name="text">
-        <string>Other...</string>
-       </property>
-      </item>
-     </widget>
-    </item>
-   </layout>
-  </widget>
+     </item>
+    </widget>
+   </item>
+  </layout>
  </widget>
  <resources/>
  <connections/>

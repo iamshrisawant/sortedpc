@@ -15,9 +15,9 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QScrollArea, QSizePolicy,
-    QStackedWidget, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
+    QPushButton, QScrollArea, QSizePolicy, QStackedWidget,
+    QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -138,23 +138,22 @@ class Ui_MainWindow(object):
         self.commandPanelLayout = QHBoxLayout()
         self.commandPanelLayout.setObjectName(u"commandPanelLayout")
         self.commandPanelLayout.setContentsMargins(6, 6, 6, 6)
-        self.ntnAttach = QToolButton(self.commandPanelWidget)
-        self.ntnAttach.setObjectName(u"ntnAttach")
-        self.ntnAttach.setMinimumSize(QSize(36, 36))
+        self.btnAttach = QToolButton(self.commandPanelWidget)
+        self.btnAttach.setObjectName(u"btnAttach")
+        self.btnAttach.setMinimumSize(QSize(36, 36))
         icon2 = QIcon(QIcon.fromTheme(QIcon.ThemeIcon.MailAttachment))
-        self.ntnAttach.setIcon(icon2)
+        self.btnAttach.setIcon(icon2)
 
-        self.commandPanelLayout.addWidget(self.ntnAttach)
+        self.commandPanelLayout.addWidget(self.btnAttach)
 
-        self.leMessage = QLineEdit(self.commandPanelWidget)
+        self.leMessage = QTextEdit(self.commandPanelWidget)
         self.leMessage.setObjectName(u"leMessage")
-        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         sizePolicy3.setHorizontalStretch(0)
         sizePolicy3.setVerticalStretch(0)
         sizePolicy3.setHeightForWidth(self.leMessage.sizePolicy().hasHeightForWidth())
         self.leMessage.setSizePolicy(sizePolicy3)
         self.leMessage.setMinimumSize(QSize(0, 30))
-        self.leMessage.setMaximumSize(QSize(16777215, 60))
 
         self.commandPanelLayout.addWidget(self.leMessage)
 
@@ -192,13 +191,9 @@ class Ui_MainWindow(object):
         self.btnLog.setText(QCoreApplication.translate("MainWindow", u"Log", None))
         self.labelGreeting.setText(QCoreApplication.translate("MainWindow", u"Hello There! What're you looking for?", None))
 #if QT_CONFIG(tooltip)
-        self.ntnAttach.setToolTip(QCoreApplication.translate("MainWindow", u"Attach file", None))
+        self.btnAttach.setToolTip(QCoreApplication.translate("MainWindow", u"Attach file", None))
 #endif // QT_CONFIG(tooltip)
-        self.ntnAttach.setText("")
-#if QT_CONFIG(tooltip)
-        self.leMessage.setToolTip("")
-#endif // QT_CONFIG(tooltip)
-        self.leMessage.setPlaceholderText(QCoreApplication.translate("MainWindow", u"Type here...", None))
+        self.btnAttach.setText("")
 #if QT_CONFIG(tooltip)
         self.btnSend.setToolTip(QCoreApplication.translate("MainWindow", u"Send", None))
 #endif // QT_CONFIG(tooltip)
