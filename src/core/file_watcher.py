@@ -1,24 +1,27 @@
+# src/core/file_watcher.py
+
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileCreatedEvent
+from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileModifiedEvent
 from pathlib import Path
+from threading import Thread
 import time
 import json
-from threading import Thread
-from loguru import logger
+import argparse
 
 from sorter_pipeline import sort_file
 from kb_builder import INDEX_FILE, META_FILE
+from utils.config import get_organized_roots
+from loguru import logger
 
-LOG_PATH = Path("logs/watcher.log")
-SORT_LOG_PATH = Path("logs/moves.log")
+LOG_PATH = Path("src/core/logs/watcher.log")
+SORT_LOG_PATH = Path("src/core/logs/moves.log")
 IGNORE_SUFFIXES = {".tmp", ".crdownload", ".part"}
-WATCHED_FOLDERS = set()
 
 logger.add(LOG_PATH, rotation="1 MB", enqueue=True)
 
-# -------------------------------
-# Util: Load already sorted files
-# -------------------------------
+_watcher_thread = None
+_observer = None
+
 
 def get_sorted_file_paths() -> set[str]:
     sorted_paths = set()
@@ -31,62 +34,120 @@ def get_sorted_file_paths() -> set[str]:
                 if "file_moved" in line:
                     json_part = line.split("|")[-1].strip()
                     entry = json.loads(json_part)
-                    full_path = Path(entry["final_folder"]) / entry["file"]
-                    sorted_paths.add(str(full_path))
+                    original = str(Path(entry["file"]).resolve())
+                    final = str(Path(entry["final_folder"], entry["file"]).resolve())
+                    sorted_paths.update({original, final})
             except Exception as e:
-                logger.warning(f"Failed to parse move log line: {line.strip()} | {e}")
+                logger.warning(f"[Watcher] Parse error in move log: {e}")
     return sorted_paths
+
 
 class SortingEventHandler(FileSystemEventHandler):
     def __init__(self, sorted_paths: set[str]):
         self.sorted_paths = sorted_paths
 
+    def handle_file(self, file_path: Path):
+        path_str = str(file_path)
+
+        if file_path.suffix.lower() in IGNORE_SUFFIXES:
+            logger.debug(f"[Watcher] Ignored temp file: {file_path}")
+            return
+
+        if path_str in self.sorted_paths:
+            logger.debug(f"[Watcher] Already sorted: {file_path}")
+            return
+
+        logger.info(f"[Watcher] New file detected: {file_path.name}")
+
+        for _ in range(10):
+            try:
+                mtime1 = file_path.stat().st_mtime
+                time.sleep(1)
+                mtime2 = file_path.stat().st_mtime
+                if mtime1 == mtime2:
+                    break
+            except FileNotFoundError:
+                return
+        else:
+            logger.warning(f"[Watcher] File unstable or still writing: {file_path}")
+            return
+
+        result = sort_file(file_path)
+        if "moved_to" in result:
+            dest_path = Path(result["moved_to"]).resolve()
+            self.sorted_paths.add(path_str)
+            self.sorted_paths.add(str(dest_path))
+            logger.info(f"[Watcher] Moved: {file_path.name} → {dest_path}")
+        else:
+            logger.warning(f"[Watcher] Sorting failed: {result.get('error')}")
+
     def on_created(self, event: FileCreatedEvent):
         if not event.is_directory:
-            file_path = Path(event.src_path)
+            self.handle_file(Path(event.src_path).resolve())
 
-            if file_path.suffix.lower() in IGNORE_SUFFIXES:
-                logger.info(f"Ignored temporary file: {file_path}")
-                return
+    def on_modified(self, event: FileModifiedEvent):
+        if not event.is_directory:
+            self.handle_file(Path(event.src_path).resolve())
 
-            if str(file_path) in self.sorted_paths:
-                logger.info(f"Already sorted file (from log): {file_path}")
-                return
 
-            logger.info(f"New file detected: {file_path}")
-            result = sort_file(file_path)
+def reset_and_run_watcher(watch_paths: list[Path] = None):
+    global _watcher_thread, _observer
 
-            if "moved_to" in result:
-                self.sorted_paths.add(result["moved_to"])
-                logger.info(f"Sorted and moved: {result['file']} -> {result['moved_to']}")
-            else:
-                logger.warning(f"Sorting failed for {result['file']}: {result.get('error')}")
-
-def start_watcher(folders: list[str]):
-    if not (Path(INDEX_FILE).exists() and Path(META_FILE).exists()):
-        logger.error("Knowledge base not ready. Cannot start file watcher.")
+    if not (INDEX_FILE.exists() and META_FILE.exists()):
+        logger.error("[Watcher] FAISS index missing. Cannot start watcher.")
         return
 
-    WATCHED_FOLDERS.update(Path(p).resolve() for p in folders)
-    sorted_paths = get_sorted_file_paths()
-    observer = Observer()
+    if _observer:
+        _observer.stop()
+        _observer.join()
 
-    for folder in WATCHED_FOLDERS:
-        if folder.exists():
+    if watch_paths is None:
+        watch_paths = get_organized_roots()
+
+    watch_paths = [Path(p).expanduser().resolve(strict=False) for p in watch_paths]
+
+    def watch():
+        global _observer
+        sorted_paths = get_sorted_file_paths()
+        _observer = Observer()
+
+        for folder in watch_paths:
+            if not folder.exists() or not folder.is_dir():
+                logger.warning(f"[Watcher] Skipping invalid path: {folder}")
+                continue
+
             handler = SortingEventHandler(sorted_paths)
-            observer.schedule(handler, str(folder), recursive=False)
-            logger.info(f"Watching folder: {folder}")
-        else:
-            logger.warning(f"Invalid folder skipped: {folder}")
+            _observer.schedule(handler, str(folder), recursive=False)
+            logger.info(f"[Watcher] Watching: {folder}")
 
-    observer.start()
-    try:
+        _observer.start()
         while True:
             time.sleep(5)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
 
-def run_in_background(folders: list[str]):
-    thread = Thread(target=start_watcher, args=(folders,), daemon=True)
-    thread.start()
+    _watcher_thread = Thread(target=watch, daemon=True)
+    _watcher_thread.start()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Start file watcher for automatic sorting.")
+    parser.add_argument(
+        "--folders",
+        nargs="+",
+        help="(Optional) Folders to watch. If omitted, uses kb_paths from config."
+    )
+    args = parser.parse_args()
+
+    resolved_paths = [Path(f).expanduser().resolve(strict=False) for f in args.folders] if args.folders else get_organized_roots()
+    logger.info("[Watcher] Launching with: " + ", ".join(map(str, resolved_paths)))
+
+    reset_and_run_watcher(resolved_paths)
+
+    print("\n[Watcher] Running. Press Ctrl+C to stop.")
+    try:
+        while True:
+            time.sleep(10)
+    except KeyboardInterrupt:
+        print("\n[Watcher] Stopped.")
+        if _observer:
+            _observer.stop()
+            _observer.join()

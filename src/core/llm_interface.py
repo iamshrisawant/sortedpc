@@ -1,82 +1,112 @@
-from pathlib import Path
-from typing import List, Tuple, Literal, Dict
+from typing import List, Tuple, Dict, Union
+import os
+import re
+import google.generativeai as genai
 
-from jinja2 import Template
-from llama_cpp import Llama
+# ────────────────────────────────────────────────────────────────────────────────
+# Gemini Initialization
+# ────────────────────────────────────────────────────────────────────────────────
 
-MODEL_PATH = "models/llm.gguf"
-MAX_TOKENS = 512
-TEMPERATURE = 0.1
+GEMINI_MODEL_ID = "gemini-2.0-flash-001"
+GEMINI_MAX_DOCS = 5  # Avoid token overload
 
-llm = Llama(model_path=MODEL_PATH, n_ctx=2048, n_threads=4)
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+gemini_model = genai.GenerativeModel(GEMINI_MODEL_ID)
 
-classification_template = Template("""
-You are a smart document assistant.
 
-Given the following document content:
----
-{{ content }}
----
+# ────────────────────────────────────────────────────────────────────────────────
+# Prompt Builders
+# ────────────────────────────────────────────────────────────────────────────────
 
-And the list of possible folders:
-{{ folders }}
-
-Classify the document into the most appropriate folder from the list.
-
-Respond with the exact folder name only.
-""".strip())
-
-qa_template = Template("""
-You are a helpful assistant answering a user query using provided documents.
-
-Query:
-{{ query }}
-
-Documents:
-{% for file, text in docs %}
-File: {{ file }}
-Content: {{ text[:1000] }}...
-{% endfor %}
-
-Answer the question using the above content. Keep it concise and relevant.
-""".strip())
-
-def run_llm(prompt: str) -> str:
-    output = llm(
-        prompt,
-        max_tokens=MAX_TOKENS,
-        stop=["</s>", "\n\n"],
-        temperature=TEMPERATURE
-    )
-    result = output["choices"][0]["text"]
-    return result.strip()
-
-def classify_document(content: str, folder_labels: List[str], retrieved_docs: List[Tuple[str, str]]) -> Tuple[str, List[str]]:
+def render_qa_prompt(query: str, docs: List[Tuple[str, str]]) -> str:
     """
-    Classify a document into one of the provided folder labels using LLM and context.
+    Build prompt for RAG-style QA.
+    Includes top N docs as context, capped by GEMINI_MAX_DOCS.
     """
-    # You can optionally augment content using retrieved_docs if needed
-    prompt = classification_template.render(
-        content=content.strip()[:3000],
-        folders=", ".join(folder_labels)
-    )
-    predicted_folder = run_llm(prompt)
-    referenced_files = [path for path, _ in retrieved_docs]
-    return predicted_folder, referenced_files
+    context_blocks = []
+    for name, text in docs[:GEMINI_MAX_DOCS]:
+        safe_text = sanitize(text[:2000])
+        context_blocks.append(f"### Document: {name}\n{safe_text}")
 
-def answer_query(query: str, retrieved_docs: List[Tuple[str, str]]) -> Tuple[str, List[str]]:
-    
-    prompt = qa_template.render(
-        query=query,
-        docs=retrieved_docs
-    )
-    answer = run_llm(prompt)
-    referenced_files = [path for path, _ in retrieved_docs]
-    return answer, referenced_files
+    context = "\n\n".join(context_blocks)
 
-def answer_query_on_selected_files(query: str, file_texts: Dict[str, str]) -> Tuple[str, List[str]]:
-    
-    doc_list = list(file_texts.items())
-    prompt = qa_template.render(query=query, docs=doc_list)
-    answer = run_llm(prompt)
-    return answer, list(file_texts.keys())
+    return f"""You are a helpful assistant. Use the following documents to answer the question.
+
+Question:
+{query}
+
+Context:
+{context}
+
+Answer:"""
+
+
+def render_classification_prompt(document_text: str, folder_labels: List[str]) -> str:
+    safe_text = sanitize(document_text[:2000])
+    label_list = ", ".join(folder_labels)
+
+    return f"""You are a document assistant. Your job is to classify the document into the most suitable folder.
+
+Document:
+{safe_text}
+
+Possible Folders:
+{label_list}
+
+Answer with the most appropriate folder name from above.
+"""
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# LLM Interface Methods
+# ────────────────────────────────────────────────────────────────────────────────
+
+def answer_query(query: str, related_docs: List[Tuple[str, str]]) -> Tuple[str, List[str]]:
+    prompt = render_qa_prompt(query, related_docs)
+    try:
+        response = gemini_model.generate_content(prompt)
+        text = (response.text or "").strip()
+        return (text if text else "No response generated."), [doc[0] for doc in related_docs]
+    except Exception as e:
+        return f"[LLM Error] {e}", []
+
+
+def answer_query_on_selected_files(query: str, file_texts: Union[Dict[str, str], List[Dict[str, str]]]) -> Tuple[str, List[str]]:
+    if isinstance(file_texts, dict):
+        docs = list(file_texts.items())
+    else:
+        docs = [(d["name"], d["text"]) for d in file_texts if "name" in d and "text" in d]
+
+    prompt = render_qa_prompt(query, docs)
+    try:
+        response = gemini_model.generate_content(prompt)
+        text = (response.text or "").strip()
+        return (text if text else "No response generated."), [doc[0] for doc in docs]
+    except Exception as e:
+        return f"[LLM Error] {e}", []
+
+
+def classify_document(document_text: str, folder_labels: List[str], related_docs: List[Tuple[str, str]]) -> Tuple[str, List[str]]:
+    prompt = render_classification_prompt(document_text, folder_labels)
+    try:
+        response = gemini_model.generate_content(prompt)
+        output = (response.text or "").strip()
+
+        # Try strict match
+        for label in folder_labels:
+            if label.lower() in output.lower():
+                return label, [doc[0] for doc in related_docs]
+
+    except Exception as e:
+        return f"[LLM Error] {e}", []
+
+    return "Unsorted", [doc[0] for doc in related_docs]
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Helper
+# ────────────────────────────────────────────────────────────────────────────────
+
+def sanitize(text: str) -> str:
+    """Cleans text for prompt input (avoid Gemini rejection or prompt injection)."""
+    return re.sub(r"[^\x00-\x7F]+", " ", text).strip()

@@ -1,53 +1,114 @@
-# Project Structure Overview
+# SortedPC: Local-First File Assistant
 
-This project is a lightweight, modular, local-first file assistant application that monitors, sorts, and answers queries about files using RAG (Retrieval-Augmented Generation) and LLMs (Local Language Models). It is optimized for low resource usage, efficient file handling, and seamless GUI integration (though GUI logic is kept separate).
+SortedPC is a modular Python application for local file organization, semantic search, and query answering using Retrieval-Augmented Generation (RAG) and Local Language Models (LLMs). The system is designed for privacy, offline operation, and extensibility. Below is a technical overview of the project, detailing each file and its core functions/methods.
 
-## 📁 Project Directory Structure
+---
+
+## 📁 Project Structure & File Functions
 
 ```
-project_root/
+sortedpc/
 │
 ├── main.py
-│   - Optional entry point or CLI launcher.
+│   - `main()`: CLI entry point; orchestrates core workflows.
 │
 ├── config/
-│   ├── folders.json            # List of folder categories for classification.
-│   └── settings.yaml           # Paths, model configs, LLM options, indexing rules.
+│   ├── folders.json
+│       - Defines file categories and folder mappings.
+│   └── settings.yaml
+│       - Stores global paths, model configurations, and operational rules.
 │
-├── core/                       # ✅ Centralized logic for shared tasks
-│   ├── extractor.py            # Extract text from PDFs, DOCX, and TXT files.
-│   ├── embedder.py             # Embeds text using sentence-transformers.
-│   ├── retriever.py            # Wraps FAISS search functionality.
-│   ├── file_ops.py             # Handles file/folder moves, renames, validation.
-│   ├── logger.py               # Logs classification steps and user feedback.
-│   ├── feedback.py             # Feedback schema and manager for review/correction.
-│   └── pipeline_utils.py       # Reusable orchestration logic for sorting and indexing.
+├── core/
+│   ├── extractor.py
+│       - `extract_text(file_path)`: Extracts text from PDF, DOCX, TXT files.
+│       - `get_file_type(file_path)`: Determines file type for extraction.
+│   ├── embedder.py
+│       - `embed_text(text)`: Converts text to vector embeddings for semantic search.
+│       - `load_embedding_model(config)`: Loads embedding model as per settings.
+│   ├── retriever.py
+│       - `search(query, top_k)`: Performs FAISS-based vector search.
+│       - `load_index(index_path)`: Loads FAISS index from disk.
+│   ├── file_ops.py
+│       - `move_file(src, dest)`: Moves files between folders.
+│       - `validate_file(file_path)`: Checks file integrity and type.
+│   ├── logger.py
+│       - `log_sorting_action(action_data)`: Logs sorting/classification steps.
+│       - `log_error(error_data)`: Logs errors during processing.
+│   ├── feedback.py
+│       - `record_feedback(feedback_data)`: Stores user feedback on sorting/classification.
+│       - `get_feedback_history()`: Retrieves feedback logs.
+│   └── pipeline_utils.py
+│       - `run_sorting_pipeline(file_path)`: Orchestrates extraction, classification, moving, and logging.
+│       - `run_indexing_pipeline()`: Indexes organized files for semantic search.
 │
-├── kb_builder.py               # Index all files from organized folders to build FAISS KB.
-├── file_watcher.py             # Monitors incoming raw files and triggers sorting.
-├── sorter_pipeline.py          # Extract → Classify → Move → Log pipeline using LLM.
-├── query_engine.py             # RAG-based question answering over local files.
-├── llm_interface.py            # Sends prompts to and receives responses from local LLM.
+├── kb_builder.py
+│   - `build_faiss_index()`: Builds FAISS knowledge base from organized files.
+│   - `update_metadata()`: Updates docs_metadata.json with file summaries.
+│
+├── file_watcher.py
+│   - `watch_raw_files()`: Monitors raw_files directory for new files.
+│   - `trigger_sorting(file_path)`: Initiates sorting pipeline on new files.
+│
+├── sorter_pipeline.py
+│   - `sort_file(file_path)`: End-to-end pipeline: extract → classify (LLM) → move → log.
+│   - `classify_file(text)`: Uses LLM to determine file category.
+│
+├── query_engine.py
+│   - `answer_query(query)`: Answers user queries using RAG over local files.
+│   - `retrieve_relevant_docs(query)`: Retrieves documents relevant to the query.
+│
+├── llm_interface.py
+│   - `prompt_llm(prompt)`: Sends prompt to local LLM and returns response.
+│   - `load_llm_model(model_path)`: Loads local LLM for inference.
 │
 ├── index/
-│   ├── faiss_index.bin         # FAISS vector store for embedded files.
-│   └── docs_metadata.json      # Maps vector entries to file paths and summaries.
+│   ├── faiss_index.bin
+│       - FAISS vector store for semantic search.
+│   └── docs_metadata.json
+│       - Maps vectors to files and stores file summaries.
 │
 ├── feedback/
-│   ├── sorting_feedback.jsonl  # One-line-per-file classification logs.
-│   └── corrections/            # User-corrected file entries (for future tuning).
+│   ├── sorting_feedback.jsonl
+│       - Logs of sorting/classification actions.
+│   └── corrections/
+│       - Stores user corrections for retraining.
 │
 ├── data/
-│   ├── raw_files/              # Folder watched for incoming unorganized files.
-│   └── organized/              # Final destination folders for sorted content.
+│   ├── raw_files/
+│       - Incoming unsorted files.
+│   └── organized/
+│       - Sorted files by category.
 │
 └── models/
-    └── local_llm/              # Local LLM binaries (GGUF for llama.cpp or Ollama models).
+    └── local_llm/
+        - Local LLM binaries (GGUF/Ollama) for offline inference.
 ```
 
-## 🧠 Features
-- **RAG-based File Sorting**: Classifies files into categories using extracted content + LLM.
-- **Semantic Query Answering**: Lets users query local files using natural language.
-- **Feedback Mechanism**: Every sorting decision is logged for user review/correction.
-- **Modular Architecture**: Core logic is decoupled from GUI, allowing CLI, service, or frontend integration.
-- **Local-first Execution**: No cloud API calls; everything is optimized for offline use.
+---
+
+## 🧩 Module Details
+
+- **main.py**: CLI launcher; calls core pipeline functions.
+- **config/**: Contains folder category definitions and global settings.
+- **core/**: Implements extraction, embedding, retrieval, file operations, logging, feedback, and pipeline orchestration.
+- **kb_builder.py**: Builds and updates FAISS index and metadata for semantic search.
+- **file_watcher.py**: Watches for new files and triggers sorting pipeline.
+- **sorter_pipeline.py**: Runs extraction, classification (LLM), moving, and logging for each file.
+- **query_engine.py**: Handles semantic queries using RAG and local vector search.
+- **llm_interface.py**: Manages local LLM loading and prompt/response handling.
+- **index/**: Stores FAISS index and document metadata.
+- **feedback/**: Logs sorting actions and user corrections.
+- **data/**: Stores raw and organized files.
+- **models/**: Contains local LLM binaries for offline inference.
+
+---
+
+## 🚀 Features
+
+- **Automated File Sorting**: Extracts content, classifies using LLM, and organizes files.
+- **Semantic Search & Querying**: Natural language queries over local documents using FAISS and RAG.
+- **Feedback Logging**: Logs every sorting/classification for review and correction.
+- **Modular & Extensible**: Decoupled logic; supports CLI, service, or frontend integration.
+- **Local-First & Private**: No cloud APIs; optimized for offline, private use.
+
+---
