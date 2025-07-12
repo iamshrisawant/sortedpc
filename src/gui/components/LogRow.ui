@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>LogRow</class>
+ <widget class="QWidget" name="LogRow">
+  <layout class="QHBoxLayout" name="logRowLayout">
+   <item>
+    <widget class="QLabel" name="lblFilename">
+     <property name="text">
+      <string>TextLabel</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="cbPathSuggestions">
+     <property name="editable">
+      <bool>true</bool>
+     </property>
+     <item>
+      <property name="text">
+       <string>predictions</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Other...</string>
+      </property>
+     </item>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>FileCard</class>
+ <widget class="QWidget" name="FileCard">
+  <layout class="QHBoxLayout" name="cardLayout">
+   <item>
+    <widget class="QToolButton" name="btnOpen">
+     <property name="icon">
+      <iconset theme="document-open"/>
+     </property>
+     <property name="iconSize">
+      <size>
+       <width>24</width>
+       <height>24</height>
+      </size>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="lblFileName">
+     <property name="text">
+      <string>TextLabel</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QToolButton" name="btnClose">
+     <property name="icon">
+      <iconset theme="application-exit"/>
+     </property>
+     <property name="iconSize">
+      <size>
+       <width>12</width>
+       <height>12</height>
+      </size>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

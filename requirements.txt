@@ -1,16 +1,35 @@
-scikit-learn
-pdfplumber
-python-docx
-watchdog
-APScheduler
-plyer
-sentence_transformers
-openpyxl
-PyPDF2
-python-docx
-python-pptx
-beautifulsoup4
-nltk
-pandas
-xgboost
-numpy
+# Core document parsing
+pdfplumber              # PDF text extraction
+PyPDF2                  # Backup PDF parser
+python-docx             # DOCX extraction
+python-pptx             # PPTX text extraction
+openpyxl                # XLSX/Excel reading
+PyMuPDF                 # Lightweight PDF rendering
+beautifulsoup4          # For HTML/XML cleanup
+
+# Embedding + NLP
+sentence-transformers   # Sentence-level embeddings (e.g. MiniLM)
+nltk                    # Tokenization, basic text cleanup
+
+# Vector search
+faiss-cpu               # Efficient vector indexing (CPU)
+
+# Local LLM
+llama-cpp-python        # Lightweight GGUF-based local model runner
+
+# File operations + Scheduling
+watchdog                # File system monitoring
+APScheduler             # Background jobs (indexing, autosave)
+tqdm                    # Progress bars
+loguru                  # Logging
+rich                    # Better CLI display
+
+# GUI
+PySide6                 # Qt-based desktop UI
+shiboken6               # Needed by PySide6
+
+# Feedback, templating, output formatting
+Jinja2                  # Prompt templating (RAG, responses)
+
+# Configuration
+python-dotenv           # Load `.env` securely for paths or flags

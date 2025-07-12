@@ -1,10 +1,58 @@
-.venv/
+# === ENV & CONFIG FILES ===
+*.env
+
+# === LOG FILES ===
+*.log
+logs/
+
+# === MODEL FILES ===
+src/core/models/
+!src/core/models/.gitkeep  # Optional: keep folder but not files
+
+# === FAISS INDEX & METADATA ===
+src/core/data/
+src/core/data/index.faiss
+src/core/data/meta.json
+src/core/data/state.json
+
+# === PYTHON BYTECODE ===
 __pycache__/
 *.pyc
-*.db
-*.pkl
-*rules.txt
-*.joblib
-*.log
-*.csv
-/ui
+
+# === CACHE INSIDE MODULES ===
+src/**/__pycache__/
+
+# === UI COMPILER GENERATED FILES ===
+*_ui.py
+
+# === OPTIONAL ===
+# Ignore compiled Qt UI files (if you want to only track .ui)
+# Uncomment the below if you regenerate _ui.py often and don't want to commit them
+# src/gui/components/*_ui.py
+# src/gui/scripts/ui_*.py
+
+# === OS/EDITOR SPECIFIC ===
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+# === Jupyter Notebook Checkpoints ===
+.ipynb_checkpoints/
+# === Python Virtual Environments ===
+venv/
+# === Python Egg Info ===
+*.egg-info/
+# === Coverage Reports ===
+.coverage
+# === Build Directories ===
+build/
+dist/
+# === Temporary Files ===
+*.tmp
+*.temp
+# === Backup Files ===
+*~
+# === Miscellaneous ===
+*.bak
+*.swp
+*.swo

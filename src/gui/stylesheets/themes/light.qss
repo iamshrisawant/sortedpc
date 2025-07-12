@@ -1,0 +1,15 @@
+@textColor: #1a1a1a;
+@windowColor: #ffffff;
+@inputBackground: #f9f9f9;
+@buttonColor: #e0e0e0;
+@buttonHover: #d6d6d6;
+@buttonPressed: #c8c8c8;
+@borderColor: #cccccc;
+@highlight: #0078d7;
+@bubbleBackground: #d9edf7;
+@cardBackground: #f0f0f0;
+@menuBackground: #ffffff;
+@scrollbarHandle: #cccccc;
+@tooltipBackground: #f5f5f5;
+@tooltipText: #000000;
+@buttonText: #000000;
