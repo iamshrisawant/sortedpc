@@ -1,42 +1,33 @@
+import logging
 from typing import List
-from nltk.tokenize.punkt import PunktSentenceTokenizer
-from loguru import logger
-import nltk
-import re
 
-try:
-    nltk.data.find("tokenizers/punkt")
-except LookupError:
-    nltk.download("punkt")
+logger = logging.getLogger(__name__)
 
-_tokenizer = PunktSentenceTokenizer()
+def chunk_text(text: str, max_chunk_size: int = 300, overlap: int = 50) -> List[str]:
+    """
+    Splits the input text into overlapping word-based chunks.
+    
+    Args:
+        text (str): The cleaned text to be chunked.
+        max_chunk_size (int): Maximum number of words per chunk.
+        overlap (int): Number of words to overlap between consecutive chunks.
+    
+    Returns:
+        List[str]: List of text chunks.
+    """
+    if not text.strip():
+        logger.warning("[Chunker] Empty text received, returning 0 chunks.")
+        return []
 
-def clean_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-def chunk_text(
-    text: str,
-    max_chars: int = 500,
-    min_chars_per_chunk: int = 100
-) -> List[str]:
-    sents = _tokenizer.tokenize(clean_text(text))
+    words = text.split()
     chunks = []
-    current = ""
+    start = 0
 
-    for sent in sents:
-        sent = sent.strip()
-        if not sent:
-            continue
+    while start < len(words):
+        end = min(start + max_chunk_size, len(words))
+        chunk = words[start:end]
+        chunks.append(" ".join(chunk))
+        start += max_chunk_size - overlap
 
-        if len(current) + len(sent) > max_chars:
-            if len(current.strip()) >= min_chars_per_chunk:
-                chunks.append(current.strip())
-            current = sent
-        else:
-            current += " " + sent
-
-    if len(current.strip()) >= min_chars_per_chunk:
-        chunks.append(current.strip())
-
-    logger.debug(f"[Chunker] Chunked into {len(chunks)} segment(s).")
+    logger.info(f"[Chunker] Chunked text into {len(chunks)} chunk(s) | Chunk size: {max_chunk_size} | Overlap: {overlap}")
     return chunks

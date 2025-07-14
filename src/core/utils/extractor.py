@@ -1,120 +1,95 @@
-from pathlib import Path
-from typing import Callable, Dict, List, Tuple
 import hashlib
+import string
 import re
+import logging
+from pathlib import Path
+from typing import Union, Dict
 
-import pdfplumber
 import docx
-import openpyxl
-import fitz
+import pdfplumber
+import pandas as pd
 from pptx import Presentation
-from bs4 import BeautifulSoup
-from loguru import logger
+from openpyxl import load_workbook
 
-VALID_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".txt", ".html"}
-MIN_CONTENT_CHARS = 50
+from nltk.corpus import stopwords
 
-def extract_pdf(path: Path) -> str:
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
+logger = logging.getLogger(__name__)
+
+STOPWORDS = set(stopwords.words('english'))
+
+def extract(file_path: Union[str, Path]) -> Dict[str, str]:
+    path = Path(file_path)
+    if not path.is_file():
+        logger.warning(f"[Extractor] Invalid file: {file_path}")
+        raise FileNotFoundError(f"Path does not point to a file: {file_path}")
+
+    file_type = path.suffix.lower().lstrip('.')
+    file_name = path.stem
+    parent_folder = path.parent.name
+
+    logger.debug(f"[Extractor] Extracting content from: {path.name}")
+    content = extract_content(path, file_type)
+    cleaned_content = clean_text(content)
+    cleaned_file_name = clean_text(file_name)
+    cleaned_folder = clean_text(parent_folder)
+    content_hash = compute_hash(content)
+
+    logger.info(f"[Extractor] {path.name} | Type: {file_type} | Hash: {content_hash[:8]} | Length: {len(cleaned_content)} chars")
+
+    return {
+        "file_path": str(path),
+        "cleaned_content": cleaned_content,
+        "file_name": cleaned_file_name,
+        "parent_folder": cleaned_folder,
+        "file_type": file_type,
+        "content_hash": content_hash,
+    }
+
+def extract_content(path: Path, file_type: str) -> str:
     try:
-        with pdfplumber.open(path) as pdf:
-            pages = [page.extract_text() or "" for page in pdf.pages]
-            text = "\n".join(pages)
-            if len(text.strip()) >= MIN_CONTENT_CHARS:
-                return text
-    except Exception as e:
-        logger.warning(f"[PDF] Primary failed for {path.name}: {e}")
-    return extract_pdf_fallback(path)
+        if file_type == "pdf":
+            with pdfplumber.open(path) as pdf:
+                return "\n".join(page.extract_text() or "" for page in pdf.pages)
 
-def extract_pdf_fallback(path: Path) -> str:
-    try:
-        doc = fitz.open(path)
-        return "\n".join(page.get_text() for page in doc)
-    except Exception as e:
-        logger.error(f"[PDF-Fallback] Failed for {path.name}: {e}")
-        return ""
+        elif file_type == "docx":
+            doc = docx.Document(path)
+            return "\n".join(p.text for p in doc.paragraphs)
 
-def extract_docx(path: Path) -> str:
-    try:
-        return "\n".join(p.text for p in docx.Document(path).paragraphs)
-    except Exception as e:
-        logger.error(f"[DOCX] Failed for {path.name}: {e}")
-        return ""
+        elif file_type == "pptx":
+            prs = Presentation(path)
+            return "\n".join(shape.text for slide in prs.slides for shape in slide.shapes if hasattr(shape, "text"))
 
-def extract_pptx(path: Path) -> str:
-    try:
-        prs = Presentation(path)
-        return "\n".join(
-            shape.text.strip()
-            for slide in prs.slides
-            for shape in slide.shapes
-            if hasattr(shape, "text") and shape.text.strip()
-        )
-    except Exception as e:
-        logger.error(f"[PPTX] Failed for {path.name}: {e}")
-        return ""
+        elif file_type == "xlsx":
+            wb = load_workbook(path, data_only=True)
+            return "\n".join(
+                str(cell.value)
+                for ws in wb.worksheets
+                for row in ws.iter_rows()
+                for cell in row
+                if cell.value is not None
+            )
 
-def extract_xlsx(path: Path) -> str:
-    try:
-        wb = openpyxl.load_workbook(path, data_only=True)
-        return "\n".join(
-            " ".join(str(cell) for cell in row if cell)
-            for sheet in wb.worksheets
-            for row in sheet.iter_rows(values_only=True)
-        )
-    except Exception as e:
-        logger.error(f"[XLSX] Failed for {path.name}: {e}")
-        return ""
+        elif file_type == "csv":
+            df = pd.read_csv(path)
+            return df.astype(str).to_string(index=False)
 
-def extract_txt(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8", errors="ignore")
-    except Exception as e:
-        logger.error(f"[TXT] Failed for {path.name}: {e}")
-        return ""
+        elif file_type in ("txt", "md"):
+            return path.read_text(encoding="utf-8", errors="ignore")
 
-def extract_html(path: Path) -> str:
-    try:
-        html = path.read_text(encoding="utf-8", errors="ignore")
-        return BeautifulSoup(html, "html.parser").get_text()
-    except Exception as e:
-        logger.error(f"[HTML] Failed for {path.name}: {e}")
-        return ""
+        else:
+            raise ValueError(f"Unsupported file type: {file_type}")
 
-EXTENSION_DISPATCH: Dict[str, Callable[[Path], str]] = {
-    ".pdf": extract_pdf,
-    ".docx": extract_docx,
-    ".pptx": extract_pptx,
-    ".xlsx": extract_xlsx,
-    ".txt": extract_txt,
-    ".html": extract_html,
-}
+    except Exception as e:
+        logger.error(f"[Extractor] Failed to read {path.name} ({file_type}): {e}")
+        raise RuntimeError(f"Failed to extract content from {path.name}: {e}")
 
 def clean_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
+    text = text.lower()
+    text = re.sub(r"[^\w\s]", " ", text)
+    words = text.split()
+    filtered = [w for w in words if w not in STOPWORDS]
+    return " ".join(filtered)
 
-def extract_text(file_path: Path) -> str:
-    ext = file_path.suffix.lower()
-    extractor = EXTENSION_DISPATCH.get(ext)
-    if not extractor:
-        logger.warning(f"[Unsupported] Skipping unsupported file: {file_path.name} ({ext})")
-        return ""
-    raw = extractor(file_path)
-    cleaned = clean_text(raw)
-    logger.debug(f"[Extract] {file_path.name} → {len(cleaned)} chars")
-    return cleaned
-
-def compute_sha256(text: str) -> str:
+def compute_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-def find_documents(base_dir: Path, min_chars: int = MIN_CONTENT_CHARS) -> List[Tuple[Path, str]]:
-    documents: List[Tuple[Path, str]] = []
-    for path in base_dir.rglob("*"):
-        if path.suffix.lower() not in VALID_EXTENSIONS:
-            continue
-        text = extract_text(path)
-        if len(text) >= min_chars:
-            documents.append((path, text))
-        else:
-            logger.debug(f"[Skip] {path.name} — too short ({len(text)} chars)")
-    logger.info(f"[Discover] {len(documents)} valid documents in {base_dir}")
-    return documents
