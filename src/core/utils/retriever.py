@@ -1,62 +1,81 @@
 import faiss
 import json
-from pathlib import Path
-from typing import List, Dict
-import numpy as np
 import logging
+import numpy as np
+from pathlib import Path
+from typing import List, Dict, Any
 
 from src.core.utils.paths import get_faiss_index_path, get_faiss_metadata_path
+from src.core.utils.embedder import get_embedding_dim
 
+# --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
 
 def retrieve_similar(
     query_embeddings: List[List[float]],
     top_k: int = 10
-) -> List[Dict]:
+) -> List[Dict[str, Any]]:
     """
-    Retrieves top_k most similar indexed chunks for given embeddings.
+    Performs similarity search for given embeddings and returns top-k matches.
 
     Args:
-        query_embeddings (List[List[float]]): New file's chunk embeddings.
-        top_k (int): Number of similar results per chunk.
+        query_embeddings (List[List[float]]): Embedding vectors of query chunks.
+        top_k (int): Number of matches to retrieve per chunk.
 
     Returns:
-        List[Dict]: List of matches with distance and metadata.
+        List[Dict]: Match metadata including distance and index info.
     """
     if not query_embeddings:
-        logger.warning("[Retriever] No embeddings provided.")
+        logger.warning("[Retriever] No embeddings provided for retrieval.")
         return []
 
     index_path = get_faiss_index_path()
-    meta_path = get_faiss_metadata_path()
+    metadata_path = get_faiss_metadata_path()
 
     if not index_path.exists():
-        raise FileNotFoundError(f"[Retriever] FAISS index not found at: {index_path}")
-    if not meta_path.exists():
-        raise FileNotFoundError(f"[Retriever] Metadata file not found at: {meta_path}")
+        raise FileNotFoundError(f"[Retriever] FAISS index missing: {index_path}")
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"[Retriever] Metadata file missing: {metadata_path}")
 
-    # Load index
-    index = faiss.read_index(str(index_path))
-    query_vecs = np.array(query_embeddings).astype("float32")
-    D, I = index.search(query_vecs, top_k)
+    try:
+        # Load index
+        index = faiss.read_index(str(index_path))
+        expected_dim = get_embedding_dim()
 
-    # Load metadata
-    with meta_path.open("r", encoding="utf-8") as f:
-        metadata = [json.loads(line) for line in f]
+        # Prepare query
+        query_array = np.array(query_embeddings, dtype=np.float32)
+        if query_array.ndim == 1:
+            query_array = query_array.reshape(1, -1)
 
-    results = []
-    for query_chunk_idx, (distances, indices) in enumerate(zip(D, I)):
-        for distance, index_id in zip(distances, indices):
-            if index_id == -1 or index_id >= len(metadata):
-                continue
-            match = metadata[index_id].copy()
-            match.update({
-                "distance": float(distance),
-                "match_index": index_id,
-                "query_chunk": query_chunk_idx
-            })
-            results.append(match)
+        actual_dim = query_array.shape[1]
+        if actual_dim != expected_dim:
+            raise ValueError(f"[Retriever] Embedding dimension mismatch: expected {expected_dim}, got {actual_dim}")
 
-    logger.info(f"[Retriever] Retrieved {len(results)} matches for {len(query_embeddings)} query chunks.")
-    return results
+        # Perform search
+        D, I = index.search(query_array, top_k)
+
+        # Load metadata
+        with metadata_path.open("r", encoding="utf-8") as f:
+            metadata = json.load(f)
+
+        # Collect results
+        results = []
+        for q_idx, (distances, indices) in enumerate(zip(D, I)):
+            for dist, idx in zip(distances, indices):
+                if idx == -1 or idx >= len(metadata):
+                    continue
+                match = metadata[idx].copy()
+                match.update({
+                    "distance": float(dist),
+                    "match_index": idx,
+                    "query_chunk": q_idx
+                })
+                results.append(match)
+
+        logger.info(f"[Retriever] Retrieved {len(results)} matches for {len(query_array)} query chunk(s).")
+        return results
+
+    except Exception as e:
+        logger.error(f"[Retriever] Retrieval failed: {repr(e)}")
+        return []

@@ -5,11 +5,16 @@ from pathlib import Path
 
 from src.core.utils.paths import get_logs_path, get_config_file
 
+# ─── Constants ───────────────────────────────────────────────────────────────
+CATEGORY_CORRECTION = "corrections"
+DEFAULT_WEIGHTS = {"alpha": 0.6, "beta": 0.3, "gamma": 0.05, "delta": 0.05}
+LEARNING_RATE = 0.05
+
+# ─── Logger Setup ────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
-
-# --- Load corrections from logs.jsonl ---
+# ─── Load Corrections ────────────────────────────────────────────────────────
 def load_corrections() -> list:
     log_path = get_logs_path()
     if not log_path.exists():
@@ -20,35 +25,30 @@ def load_corrections() -> list:
         for line in f:
             try:
                 entry = json.loads(line)
-                if entry.get("category") == "correction":
+                if entry.get("category") == CATEGORY_CORRECTION:
                     corrections.append(entry)
             except json.JSONDecodeError:
                 continue
     return corrections
 
-
-# --- Load scoring weights from config.json ---
+# ─── Load and Save Weights ───────────────────────────────────────────────────
 def load_weights() -> dict:
     config_path = get_config_file()
     if not config_path.exists():
-        return {"alpha": 0.6, "beta": 0.3, "gamma": 0.05, "delta": 0.05}
+        return DEFAULT_WEIGHTS.copy()
 
     with config_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
     return {
-        "alpha": float(data.get("alpha", 0.6)),
-        "beta": float(data.get("beta", 0.3)),
-        "gamma": float(data.get("gamma", 0.05)),
-        "delta": float(data.get("delta", 0.05)),
+        "alpha": float(data.get("alpha", DEFAULT_WEIGHTS["alpha"])),
+        "beta": float(data.get("beta", DEFAULT_WEIGHTS["beta"])),
+        "gamma": float(data.get("gamma", DEFAULT_WEIGHTS["gamma"])),
+        "delta": float(data.get("delta", DEFAULT_WEIGHTS["delta"])),
     }
 
-
-# --- Save updated weights to config.json ---
 def save_weights(weights: dict):
     config_path = get_config_file()
-
-    # Load existing config if it exists
     if config_path.exists():
         with config_path.open("r", encoding="utf-8") as f:
             config = json.load(f)
@@ -62,14 +62,18 @@ def save_weights(weights: dict):
 
     logger.info(f"[Reinforcer] Updated weights saved to {config_path.name}")
 
-
-# --- Normalize weights to sum to 1 ---
+# ─── Weight Utilities ────────────────────────────────────────────────────────
 def normalize_weights(w: dict) -> dict:
     total = sum(w.values())
     return {k: round(v / total, 6) for k, v in w.items()}
 
+def print_weight_diff(before: dict, after: dict):
+    logger.info("[Reinforcer] Weight update summary:")
+    for k in before:
+        delta = round(after[k] - before[k], 6)
+        logger.info(f"  {k}: {before[k]} → {after[k]}  ({'+' if delta >= 0 else ''}{delta})")
 
-# --- Compute adjustments from corrections ---
+# ─── Adjustment Calculation ──────────────────────────────────────────────────
 def compute_adjustments(corrections: list, current_weights: dict) -> dict:
     over_weight = defaultdict(float)
     under_weight = defaultdict(float)
@@ -80,54 +84,50 @@ def compute_adjustments(corrections: list, current_weights: dict) -> dict:
             continue
 
         corrected = Path(entry["final_folder"]).name
-        original = None
-        for folder in scoring:
-            if folder != corrected:
-                original = folder
-                break
-
-        if not original or original == corrected:
+        if corrected not in scoring:
             continue
 
-        orig_score = scoring.get(original, 0.0)
-        corr_score = scoring.get(corrected, 0.0)
+        corrected_score = scoring[corrected].get("final_score")
+        if corrected_score is None:
+            continue
 
-        if corr_score > orig_score:
-            diff = corr_score - orig_score
-            under_weight["alpha"] += diff * 0.6
-            under_weight["beta"] += diff * 0.3
-            under_weight["gamma"] += diff * 0.05
-            under_weight["delta"] += diff * 0.05
-        else:
-            diff = orig_score - corr_score
-            over_weight["alpha"] += diff * 0.6
-            over_weight["beta"] += diff * 0.3
-            over_weight["gamma"] += diff * 0.05
-            over_weight["delta"] += diff * 0.05
+        for folder, score_data in scoring.items():
+            if folder == corrected:
+                continue
+            original_score = score_data.get("final_score")
+            if original_score is None:
+                continue
 
-    # Apply learning rate
-    learning_rate = 0.05
+            delta = corrected_score - original_score
+            if delta > 0:
+                under_weight["alpha"] += delta * score_data.get("mean_similarity", 0)
+                under_weight["beta"] += delta * score_data.get("max_similarity", 0)
+                under_weight["gamma"] += delta * score_data.get("normalized_match_count", 0)
+                under_weight["delta"] += delta * (
+                    0.5 * score_data.get("name_match_score", 0) +
+                    0.5 * score_data.get("type_affinity_score", 0)
+                )
+            else:
+                delta = -delta
+                over_weight["alpha"] += delta * score_data.get("mean_similarity", 0)
+                over_weight["beta"] += delta * score_data.get("max_similarity", 0)
+                over_weight["gamma"] += delta * score_data.get("normalized_match_count", 0)
+                over_weight["delta"] += delta * (
+                    0.5 * score_data.get("name_match_score", 0) +
+                    0.5 * score_data.get("type_affinity_score", 0)
+                )
+            break  # Only compare one original folder per correction
+
+    # Apply learning rate to update weights
     new_weights = current_weights.copy()
-
     for k in new_weights:
-        delta = learning_rate * (under_weight[k] - over_weight[k])
+        delta = LEARNING_RATE * (under_weight[k] - over_weight[k])
         new_weights[k] += delta
-
-    for k in new_weights:
         new_weights[k] = max(0.01, min(1.0, new_weights[k]))
 
     return normalize_weights(new_weights)
 
-
-# --- Weight change summary ---
-def print_weight_diff(before: dict, after: dict):
-    logger.info("[Reinforcer] Weight update summary:")
-    for k in before:
-        delta = round(after[k] - before[k], 6)
-        logger.info(f"  {k}: {before[k]} → {after[k]}  ({'+' if delta >= 0 else ''}{delta})")
-
-
-# --- Reinforcement entrypoint ---
+# ─── Main Reinforcement Entry ────────────────────────────────────────────────
 def reinforce():
     corrections = load_corrections()
     if not corrections:
@@ -140,12 +140,9 @@ def reinforce():
     print_weight_diff(current_weights, updated_weights)
     save_weights(updated_weights)
 
-
-# --- Programmatic Entry ---
+# ─── Entrypoints ─────────────────────────────────────────────────────────────
 def run_reinforcer():
     reinforce()
 
-
-# --- CLI ---
 if __name__ == "__main__":
     run_reinforcer()

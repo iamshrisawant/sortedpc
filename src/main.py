@@ -1,238 +1,327 @@
-import os
+# [main.py] — SortedPC Launcher
+
 import sys
 import json
-import time
+import ctypes
 import logging
+import subprocess
+import time
 from pathlib import Path
+
+from colorama import Fore, Style, init as colorama_init
+colorama_init(autoreset=True)
 
 from src.core.pipelines.initializer import run_initializer
 from src.core.pipelines.builder import build_from_paths
-from src.core.pipelines.watcher import watcher_loop
-from src.core.pipelines.sorter import handle_new_file
-from src.core.pipelines.actor import act_on_file, handle_correction
+from src.core.pipelines.actor import handle_correction
 from src.core.pipelines.reinforcer import reinforce
-
 from src.core.utils.paths import (
-    get_watch_paths,
-    get_organized_paths,
-    get_paths_file,
-    get_config_file,
-    normalize_path,
-    get_logs_path
+    get_watch_paths, get_organized_paths, get_paths_file,
+    get_config_file, normalize_path, get_logs_path,
 )
+from src.core.utils.notifier import notify_system_event
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
 
-# --- Helpers ---
-def prompt_paths(key: str) -> list:
-    print(f"\nNo {key.replace('_', ' ')} found.")
-    paths = []
-    while True:
-        user_input = input(f"Add a path to {key} (or press Enter to stop): ").strip()
-        if not user_input:
-            break
-        normalized = normalize_path(user_input)
-        if Path(normalized).exists():
-            paths.append(normalized)
-        else:
-            print("Invalid path. Try again.")
-    return paths
+# ─── Config State ───
 
-
-def update_paths_json(new_watch: list, new_organized: list):
-    path_file = get_paths_file()
-    if not path_file.exists():
-        path_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(path_file, "w", encoding="utf-8") as f:
-            json.dump({"watch_paths": new_watch, "organized_paths": new_organized}, f, indent=2)
-    else:
-        with open(path_file, "r+", encoding="utf-8") as f:
-            data = json.load(f)
-            data["watch_paths"] = new_watch or data.get("watch_paths", [])
-            data["organized_paths"] = new_organized or data.get("organized_paths", [])
-            f.seek(0)
-            f.truncate()
-            json.dump(data, f, indent=2)
-
+def load_config() -> dict:
+    path = get_config_file()
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 def update_state(key: str, value: bool):
-    config_path = get_config_file()
-    config = {}
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
+    config = load_config()
     config[key] = value
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
+    get_config_file().write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+def get_state(key: str) -> bool:
+    return load_config().get(key, False)
 
 
-# --- Correction flow ---
+# ─── Admin + Short Path Utilities ───
+
+def run_as_admin(command: str) -> bool:
+    try:
+        result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", f"/c {command}", None, 1)
+        return result > 32
+    except Exception as e:
+        logger.error(f"[Main] Elevation failed: {e}")
+        return False
+
+def get_short_path(path: Path) -> str:
+    try:
+        result = subprocess.check_output(f'for %I in ("{path}") do @echo %~sI', shell=True, text=True)
+        return result.strip()
+    except Exception as e:
+        logger.error(f"[Main] Could not convert to short path: {e}")
+        return str(path)
+
+
+# ─── Watcher Management ───
+
+def register_watcher_task():
+    task_name = "SortedPC_Watcher"
+    xml_file = Path(__file__).parent / "config.xml"
+
+    if not xml_file.exists():
+        logger.error(f"[Main] XML config file not found at {xml_file}")
+        notify_system_event("Watcher Not Registered", "Missing config.xml. Cannot register watcher.")
+        return False
+
+    short_xml_path = get_short_path(xml_file.resolve())
+    command = f'schtasks /Create /TN "{task_name}" /XML "{short_xml_path}" /F'
+
+    success = run_as_admin(command)
+    if success:
+        time.sleep(2.5)
+        if is_watcher_task_registered():
+            update_state("watcher_registered", True)
+            notify_system_event("Watcher Registered", "Watcher registered using config.xml")
+            logger.info("[Main] Watcher registered successfully.")
+            return True
+        else:
+            logger.error("[Main] Watcher registration failed after elevation.")
+    else:
+        logger.error("[Main] Watcher registration denied or failed.")
+
+    notify_system_event("Watcher Not Registered", "Watcher registration failed or denied.")
+    return False
+
+def unregister_watcher_task():
+    command = 'schtasks /Delete /TN "SortedPC_Watcher" /F'
+    if run_as_admin(command):
+        update_state("watcher_registered", False)
+        notify_system_event("Watcher Unregistered", "Unregistered with elevation.")
+        logger.info("[Main] Watcher unregistered with elevation.")
+    else:
+        logger.error("[Main] Watcher unregistration denied.")
+        notify_system_event("Watcher Not Unregistered", "Admin access denied.")
+
+def is_watcher_online() -> bool:
+    try:
+        return get_state("watcher_online")
+    except Exception as e:
+        logger.error(f"[Main] Failed to read watcher_online from config: {e}")
+        return False
+
+def is_watcher_task_registered() -> bool:
+    try:
+        subprocess.check_output('schtasks /Query /TN "SortedPC_Watcher"', shell=True, text=True)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+def maybe_start_watcher():
+    should_start = get_state("faiss_built") and get_watch_paths() and not get_state("builder_busy")
+    registered = is_watcher_task_registered()
+    running = is_watcher_online()
+
+    logger.info(f"[Main] Watcher registered: {registered}")
+    logger.info(f"[Main] Watcher running: {running}")
+    logger.info(f"[Main] Preconditions met: {should_start}")
+
+    if not should_start:
+        logger.info("[Main] Watcher will not be started — prerequisites not met.")
+        return
+
+    if not registered:
+        logger.warning("[Main] Watcher not registered. Attempting registration…")
+        registered = register_watcher_task()
+
+    if registered and not running:
+        try:
+            subprocess.Popen([sys.executable, "-m", "src.core.pipelines.watcher"], shell=True)
+            logger.info("[Main] Watcher started via subprocess.")
+            while not is_watcher_online():
+                time.sleep(0.25)
+            logger.info("[Main] Watcher is now online.")
+        except Exception as e:
+            logger.error(f"[Main] Failed to start watcher: {e}")
+    elif not registered:
+        logger.warning("[Main] Watcher not started because registration failed.")
+
+
+def stop_watcher():
+    from src.core.pipelines.watcher import kill_watcher
+    kill_watcher()
+    unregister_watcher_task()
+
+
+# ─── Path Management ───
+
+def update_paths_json(watch_paths=None, organized_paths=None):
+    file = get_paths_file()
+    data = {"watch_paths": [], "organized_paths": []}
+    if file.exists():
+        data = json.loads(file.read_text(encoding="utf-8"))
+    if watch_paths is not None:
+        data["watch_paths"] = watch_paths
+    if organized_paths is not None:
+        data["organized_paths"] = organized_paths
+    file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+def prompt_and_add_paths(key: str):
+    is_watch = key == "watch_paths"
+    existing = get_watch_paths() if is_watch else get_organized_paths()
+    print(f"\nAdd {key.replace('_', ' ')}. Enter blank line to stop.")
+    updated = list(existing)
+
+    while True:
+        path = input("Path: ").strip()
+        if not path:
+            break
+        norm = normalize_path(path)
+        if Path(norm).exists() and norm not in updated:
+            updated.append(norm)
+        else:
+            print("  → Invalid or duplicate path.")
+
+    update_paths_json(
+        watch_paths=updated if is_watch else None,
+        organized_paths=updated if not is_watch else None
+    )
+    return updated
+
+
+# ─── Main Actions ───
+
+def add_organized_paths():
+    paths = prompt_and_add_paths("organized_paths")
+    print("Rebuilding FAISS index…")
+    update_state("builder_busy", True)
+    build_from_paths(paths)
+    update_state("builder_busy", False)
+    update_state("faiss_built", True)
+    print("✅ FAISS index rebuilt.")
+    maybe_start_watcher()
+
+def add_watch_paths():
+    paths = prompt_and_add_paths("watch_paths")
+    if paths:
+        print("Restarting watcher…")
+        stop_watcher()
+        maybe_start_watcher()
+        print("✅ Watcher restarted.")
+    else:
+        print("No paths added. Skipping watcher restart.")
+
 def show_move_logs():
-    logs_path = get_logs_path()
-    if not logs_path.exists():
-        print("\nNo logs found.")
+    log_file = get_logs_path()
+    if not log_file.exists():
+        print("No logs found.")
         return []
-
-    entries = []
-    with open(logs_path, "r", encoding="utf-8") as f:
-        for line in f:
-            try:
-                entry = json.loads(line)
-                if entry["category"] == "moves":  # ✅ FIXED: was "move"
-                    entries.append(entry)
-            except Exception:
-                continue
-
+    entries = {}
+    for line in log_file.read_text(encoding="utf-8").splitlines():
+        try:
+            item = json.loads(line)
+            if item.get("category") in {"moves", "corrections"}:
+                name = Path(item["file_path"]).name.lower()
+                if name not in entries or item["timestamp"] > entries[name]["timestamp"]:
+                    entries[name] = item
+        except Exception:
+            continue
     if not entries:
-        print("\nNo move logs yet.")
+        print("No move logs found.")
         return []
-
     print("\nMove Logs:")
-    for i, entry in enumerate(entries):
-        print(f"[{i}] {Path(entry['file_path']).name} → {entry['final_folder']}")
-    return entries
+    result = list(entries.values())
+    for i, entry in enumerate(result):
+        mark = " (corrected)" if entry["category"] == "corrections" else ""
+        print(f"[{i}] {Path(entry['file_path']).name} → {entry['final_folder']}{mark}")
+    return result
 
-
-def handle_user_correction():
+def apply_user_correction():
     entries = show_move_logs()
     if not entries:
         return
-
-    idx = input("\nEnter the index of a file to correct (or press Enter to cancel): ").strip()
-    if not idx.isdigit() or int(idx) >= len(entries):
+    idx = input("Select index to correct (blank to cancel): ").strip()
+    if not idx.isdigit() or not (0 <= int(idx) < len(entries)):
         print("Invalid selection.")
         return
-
-    selected = entries[int(idx)]
     new_folder = input("Enter new folder path: ").strip()
-    if not new_folder or not Path(new_folder).exists():
+    if not Path(new_folder).exists():
         print("Invalid folder.")
         return
-
-    handle_correction(selected["file_path"], new_folder)
+    handle_correction(entries[int(idx)]["file_path"], new_folder)
     reinforce()
+    print("✅ Correction applied and reinforced.")
 
 
-# --- Watcher runner with sorter + actor ---
-def run_live_watcher():
-    from src.core.utils.extractor import extract
-    from src.core.utils.chunker import chunk_text
-    from src.core.utils.embedder import embed_texts
+# ─── UI ───
 
-    config = {}
-    config_path = get_config_file()
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
+def print_watcher_status():
+    online = is_watcher_online()
+    registered = get_state("watcher_registered")
+    print()
+    if online:
+        print(Fore.GREEN + "🟢 Watcher is online and running." + Style.RESET_ALL)
+    elif registered:
+        print(Fore.YELLOW + "🟡 Watcher is registered but offline." + Style.RESET_ALL)
+    else:
+        print(Fore.RED + "🔴 Watcher is not registered." + Style.RESET_ALL)
 
-    if not config.get("faiss_built", False) or config.get("builder_running", False):
-        print("\nFAISS not built or builder still running.")
-        return
-
-    print("\n[Watcher] Running... Press Ctrl+C to stop.")
-    seen = set()
-
-    logs_path = get_logs_path()
-    logs_path.parent.mkdir(parents=True, exist_ok=True)
-    logs_path.touch(exist_ok=True)
-
-    update_state("watcher_online", True)
-    try:
-        while True:
-            logs = []
-            if logs_path.exists():
-                with open(logs_path, "r", encoding="utf-8") as f:
-                    logs = [json.loads(line) for line in f if line.strip()]
-
-            for folder in get_watch_paths():
-                for file in Path(folder).rglob("*"):
-                    if not file.is_file() or file.name.startswith("~") or file.name.startswith("."):
-                        continue
-                    resolved = str(file.resolve())
-                    if resolved in seen:
-                        continue
-                    if any(l.get("file_path") == resolved for l in logs):
-                        continue
-
-                    print(f"\n[New] {file.name}")
-                    try:
-                        data = extract(resolved)
-                        chunks = chunk_text(data["content"])
-                        embeddings = embed_texts(chunks)
-                        file_data = {
-                            "file_path": resolved,
-                            "file_name": data["file_name"],
-                            "parent_folder": data["parent_folder"],
-                            "file_type": data["file_type"],
-                            "content_hash": data["content_hash"],
-                            "embeddings": embeddings
-                        }
-                        sorted_data = handle_new_file(file_data)
-                        act_on_file(sorted_data)
-                        seen.add(resolved)
-                    except Exception as e:
-                        print(f"Error processing {file.name}: {e}")
-            time.sleep(3)
-
-    except KeyboardInterrupt:
-        print("\n[Watcher] Stopped.")
-        resp = input("Run reinforcement now? (y/n): ").strip().lower()
-        if resp == "y":
-            reinforce()
-
-    finally:
-        update_state("watcher_online", False)
+    if not get_organized_paths():
+        print(Fore.RED + "→ No organized paths set.")
+    if not get_watch_paths():
+        print(Fore.RED + "→ No watch paths set.")
+    if not get_state("faiss_built"):
+        print(Fore.RED + "→ FAISS index not built.")
 
 
-# --- Main ---
-def main():
-    print("\n🔧 SortedPC CLI Orchestrator 🔧")
+# ─── Menu ───
 
-    run_initializer()
-
-    watch_paths = get_watch_paths()
-    organized_paths = get_organized_paths()
-
-    if not watch_paths:
-        watch_paths = prompt_paths("watch_paths")
-    if not organized_paths:
-        organized_paths = prompt_paths("organized_paths")
-
-    update_paths_json(watch_paths, organized_paths)
-
-    print("\n[Builder] Indexing organized paths...")
-    update_state("builder_running", True)
-    build_from_paths(organized_paths)
-    update_state("builder_running", False)
-    update_state("faiss_built", True)
-
-    run_live_watcher()
-
-
-# --- Menu CLI ---
 def menu():
+    run_initializer()
+    if not get_organized_paths():
+        add_organized_paths()
+    maybe_start_watcher()
+
     while True:
         print("\n====== SortedPC Menu ======")
-        print("1. Launch pipeline (builder + watcher)")
-        print("2. View and apply correction")
-        print("3. Run full reinforcement learning")
-        print("4. Exit")
-        choice = input("Select an option: ").strip()
+        print_watcher_status()
+        print("1. Add organized path(s) + rebuild index")
+        print("2. Add watch path(s) + restart watcher")
+        print("3. Kill watcher")
+        print("4. View / apply correction")
+        print("5. Run full reinforcement")
+        print("6. Reset everything")
+        print("7. Exit")
+        choice = input("Select: ").strip()
 
         if choice == "1":
-            main()
+            add_organized_paths()
         elif choice == "2":
-            handle_user_correction()
+            add_watch_paths()
         elif choice == "3":
-            reinforce()
+            stop_watcher()
+            print("✅ Watcher killed and unregistered.")
         elif choice == "4":
+            apply_user_correction()
+        elif choice == "5":
+            reinforce()
+            print("✅ Reinforcement complete.")
+        elif choice == "6":
+            print("Resetting system…")
+            stop_watcher()
+            run_initializer(force_reset=True)
+            if not get_organized_paths():
+                add_organized_paths()
+            maybe_start_watcher()
+        elif choice == "7":
             print("Goodbye.")
             break
         else:
             print("Invalid choice.")
 
 
+# ─── Entrypoint ───
+
 if __name__ == "__main__":
-    menu()
+    try:
+        menu()
+    except KeyboardInterrupt:
+        print("\nExiting…")
+        stop_watcher()
+        notify_system_event("SortedPC Exited.")

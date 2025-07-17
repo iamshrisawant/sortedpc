@@ -1,69 +1,85 @@
-import faiss
 import json
-from pathlib import Path
-from typing import List
-import numpy as np
 import logging
+import faiss
+import numpy as np
+from pathlib import Path
+from typing import List, Dict, Any
 
-from src.core.utils.paths import get_faiss_index_path, get_faiss_metadata_path
+from src.core.utils.embedder import get_embedding_dim
 
+# --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
 
+# --- FAISS Index Handling ---
+def load_faiss_index(index_path: Path, expected_dim: int) -> faiss.IndexFlatL2:
+    if index_path.exists():
+        logger.info(f"[Indexer] Loading existing FAISS index from {index_path.name}")
+        index = faiss.read_index(str(index_path))
+        if index.d != expected_dim:
+            raise ValueError(f"[Indexer] FAISS index dimension mismatch: "
+                             f"expected {expected_dim}, found {index.d}")
+        return index
+
+    logger.info(f"[Indexer] Creating new FAISS index with dim={expected_dim}")
+    return faiss.IndexFlatL2(expected_dim)
+
+
+# --- Metadata Store Handling ---
+def load_metadata_store(path: Path) -> List[Dict[str, Any]]:
+    if path.exists():
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            logger.warning(f"[Indexer] Corrupted metadata file. Starting fresh: {path}")
+            return []
+    return []
+
+
+def save_metadata_store(path: Path, metadata: List[Dict[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+    logger.info(f"[Indexer] Saved metadata to {path.name} ({len(metadata)} entries)")
+
+
+# --- Main Indexing Function ---
 def index_file(
-    embedding: List[List[float]],
-    file_path: str,
-    file_name: str,
-    parent_folder: str,
-    file_type: str,
-    content_hash: str = ""
+    embeddings: List[List[float]],
+    file_metadata: Dict[str, str],
+    faiss_index_path: Path,
+    metadata_store_path: Path
 ) -> None:
-    """
-    Indexes embeddings of a file and appends metadata.
-    
-    Args:
-        embedding (List[List[float]]): List of chunk embeddings.
-        file_path (str): Full resolved path to file.
-        file_name (str): File stem (name without extension).
-        parent_folder (str): Folder the file belongs to.
-        file_type (str): File extension/type (e.g., 'pdf').
-        content_hash (str): Optional hash of file content.
-    """
-    if not embedding:
-        logger.warning("[Indexer] No embeddings provided.")
+    file_label = file_metadata.get("file_name", "UNKNOWN")
+
+    if not embeddings:
+        logger.warning(f"[Indexer] Skipping {file_label}: No embeddings provided.")
         return
 
-    vecs = np.array(embedding).astype("float32")
-    dim = vecs.shape[1]
+    try:
+        # Convert to 2D NumPy array
+        embedding_array = np.array(embeddings, dtype=np.float32)
+        if embedding_array.ndim == 1:
+            embedding_array = embedding_array.reshape(1, -1)
 
-    index_path = get_faiss_index_path()
-    meta_path = get_faiss_metadata_path()
+        actual_dim = embedding_array.shape[1]
+        expected_dim = get_embedding_dim()
 
-    # Load or initialize FAISS index
-    if index_path.exists():
-        index = faiss.read_index(str(index_path))
-        if index.d != dim:
-            raise ValueError(f"[Indexer] Dimension mismatch: {index.d} (index) vs {dim} (embedding).")
-        logger.debug(f"[Indexer] Loaded existing FAISS index: {index_path}")
-    else:
-        index = faiss.IndexFlatL2(dim)
-        logger.debug(f"[Indexer] Created new FAISS index (dim={dim})")
+        if actual_dim != expected_dim:
+            raise ValueError(f"[Indexer] Embedding dim mismatch: expected {expected_dim}, got {actual_dim}")
 
-    # Add vectors and write index
-    index.add(vecs)
-    faiss.write_index(index, str(index_path))
-    logger.info(f"[Indexer] Indexed {len(embedding)} chunk(s) for: {file_name}")
+        # Load or create FAISS index
+        index = load_faiss_index(faiss_index_path, expected_dim)
 
-    # Append metadata
-    with meta_path.open("a", encoding="utf-8") as f:
-        for i in range(len(embedding)):
-            metadata_entry = {
-                "file_path": file_path,
-                "file_name": file_name,
-                "parent_folder": parent_folder,
-                "file_type": file_type,
-                "content_hash": content_hash,
-                "chunk_index": i
-            }
-            f.write(json.dumps(metadata_entry) + "\n")
-    logger.debug(f"[Indexer] Appended metadata for {file_name} to {meta_path}")
+        # Add vectors to index
+        index.add(embedding_array)
+        faiss.write_index(index, str(faiss_index_path))
+        logger.info(f"[Indexer] Added {len(embedding_array)} vector(s) for {file_label}")
+
+        # Append metadata
+        metadata = load_metadata_store(metadata_store_path)
+        metadata.extend([file_metadata] * len(embedding_array))
+        save_metadata_store(metadata_store_path, metadata)
+
+    except Exception as e:
+        logger.error(f"[Indexer] Failed to index file: {file_label} | Error: {repr(e)}")

@@ -1,23 +1,25 @@
 import json
-import shutil
-from pathlib import Path
 import logging
+from pathlib import Path
+import faiss
 
 from src.core.utils.paths import (
     get_paths_file,
     get_config_file,
     get_logs_path,
-    get_faiss_dir,
-    get_unsorted_folder
+    get_faiss_index_path,
+    get_faiss_metadata_path,
+    get_unsorted_folder,
+    get_data_dir,
 )
-
 from src.core.utils.notifier import notify_system_event
+from src.core.utils.embedder import get_embedding_dim
 
-
+# --- Logger Setup ---
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
-# --- Default Data Structures ---
+# --- Default Data ---
 DEFAULT_PATHS = {
     "organized_paths": [],
     "watch_paths": []
@@ -33,16 +35,14 @@ DEFAULT_CONFIG = {
     "delta": 0.05
 }
 
-
-# --- Helpers ---
+# --- File & Folder Ensurers ---
 def ensure_file(path: Path, default_data=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         if path.suffix == ".json":
-            with path.open("w", encoding="utf-8") as f:
-                json.dump(default_data or {}, f, indent=2)
+            path.write_text(json.dumps(default_data or {}, indent=2), encoding="utf-8")
         elif path.suffix == ".jsonl":
-            path.touch()
+            path.write_text("", encoding="utf-8")
         logger.info(f"[Initializer] Created: {path}")
 
 
@@ -52,49 +52,80 @@ def ensure_unsorted_folder():
     logger.info(f"[Initializer] Ensured unsorted folder: {folder}")
 
 
-# --- Reset system (force clear) ---
-def reset_all():
-    logger.info("[Initializer] Resetting system state...")
+def ensure_faiss_files():
+    dim = get_embedding_dim()
+    index_path = get_faiss_index_path()
+    metadata_path = get_faiss_metadata_path()
+    data_dir = get_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
 
-    # Delete logs
+    if not index_path.exists():
+        logger.info(f"[Initializer] Creating empty FAISS index at: {index_path} (dim={dim})")
+        index = faiss.IndexFlatL2(dim)
+        faiss.write_index(index, str(index_path))
+
+    if not metadata_path.exists():
+        logger.info(f"[Initializer] Creating empty metadata file at: {metadata_path}")
+        metadata_path.write_text("[]", encoding="utf-8")
+
+
+# --- Reset Logic ---
+def reset_all():
+    logger.warning("[Initializer] Resetting system state...")
+
+    # Remove log file
     logs_path = get_logs_path()
     if logs_path.exists():
         logs_path.unlink()
         logger.info("[Initializer] Cleared logs.jsonl")
 
-    # Delete and recreate FAISS directory
-    faiss_dir = get_faiss_dir()
-    if faiss_dir.exists():
-        shutil.rmtree(faiss_dir)
-        logger.info("[Initializer] Deleted FAISS index directory")
-    faiss_dir.mkdir(parents=True, exist_ok=True)
+    # Remove all files in data dir
+    data_dir = get_data_dir()
+    if data_dir.exists():
+        for file in data_dir.iterdir():
+            if file.is_file():
+                file.unlink()
+        logger.info("[Initializer] Cleared data files")
+    data_dir.mkdir(parents=True, exist_ok=True)
 
-    # Recreate config + paths
-    with get_paths_file().open("w", encoding="utf-8") as f:
-        json.dump(DEFAULT_PATHS, f, indent=2)
+    # Write fresh paths/config/log files
+    get_paths_file().write_text(json.dumps(DEFAULT_PATHS, indent=2), encoding="utf-8")
+    get_config_file().write_text(json.dumps(DEFAULT_CONFIG, indent=2), encoding="utf-8")
+    get_logs_path().write_text("", encoding="utf-8")
 
-    with get_config_file().open("w", encoding="utf-8") as f:
-        json.dump(DEFAULT_CONFIG, f, indent=2)
-
-    # Touch empty logs.jsonl
-    logs_path.touch()
-    logger.info("[Initializer] All data files reset.")
+    # Create new FAISS index + metadata
+    ensure_faiss_files()
+    logger.info("[Initializer] All system files reset.")
 
 
-# --- Initialization ---
+# --- Checks ---
+def all_critical_files_exist() -> bool:
+    return all([
+        get_paths_file().exists(),
+        get_config_file().exists(),
+        get_logs_path().exists(),
+        get_faiss_index_path().exists(),
+        get_faiss_metadata_path().exists()
+    ])
+
+
+# --- Initialization Entry ---
 def initialize(force_reset: bool = False):
-    if force_reset:
+    if force_reset or not all_critical_files_exist():
+        logger.warning("[Initializer] Missing critical files or reset forced. Performing full reset...")
         reset_all()
     else:
         ensure_file(get_paths_file(), DEFAULT_PATHS)
         ensure_file(get_config_file(), DEFAULT_CONFIG)
         ensure_file(get_logs_path())
+        ensure_faiss_files()
+
     ensure_unsorted_folder()
+
     logger.info("[Initializer] System initialized.")
-    notify_system_event("System Initialized","SortedPC is ready to use.")
+    notify_system_event("System Initialized", "SortedPC is ready to use.")
 
 
-# --- Entrypoint for programmatic calls ---
 def run_initializer(force_reset: bool = False):
     initialize(force_reset=force_reset)
 
@@ -102,9 +133,8 @@ def run_initializer(force_reset: bool = False):
 # --- CLI Entrypoint ---
 if __name__ == "__main__":
     import argparse
-
-    parser = argparse.ArgumentParser(description="Initialize or reset the system state.")
-    parser.add_argument("--reset", action="store_true", help="Force reset everything.")
+    parser = argparse.ArgumentParser(description="Initialize or reset SortedPC system state.")
+    parser.add_argument("--reset", action="store_true", help="Force full reset of all data/config/index files.")
     args = parser.parse_args()
 
     run_initializer(force_reset=args.reset)

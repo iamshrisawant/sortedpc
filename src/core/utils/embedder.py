@@ -1,26 +1,48 @@
-from typing import List
-from sentence_transformers import SentenceTransformer
 import logging
+from typing import List
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
-# Configure logger if needed
+# --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
-# Load model once globally
+# --- Load SentenceTransformer model globally ---
 _model = SentenceTransformer("all-MiniLM-L6-v2")
+
+
+def get_embedding_dim() -> int:
+    """
+    Returns the dimensionality of embeddings produced by the model.
+    """
+    return _model.get_sentence_embedding_dimension()
+
 
 def embed_texts(chunks: List[str]) -> List[List[float]]:
     """
-    Generates embeddings for a list of text chunks.
+    Generates sentence embeddings for a list of text chunks.
 
     Args:
-        chunks (List[str]): Cleaned and chunked text.
+        chunks (List[str]): Text chunks to embed.
 
     Returns:
-        List[List[float]]: Embeddings for each chunk.
+        List[List[float]]: 2D list of float embeddings (one per chunk).
     """
     if not chunks:
+        logger.warning("[Embedder] No chunks provided for embedding.")
         return []
 
-    logger.debug(f"[Embedder] Embedding {len(chunks)} chunk(s)...")
-    embeddings = _model.encode(chunks, show_progress_bar=False)
-    return embeddings.tolist()
+    logger.info(f"[Embedder] Generating embeddings for {len(chunks)} chunk(s)...")
+
+    try:
+        embeddings = _model.encode(chunks, show_progress_bar=False)
+
+        if isinstance(embeddings, np.ndarray):
+            if embeddings.ndim == 1:
+                embeddings = embeddings.reshape(1, -1)
+            return embeddings.tolist()
+
+        raise TypeError("[Embedder] Model output was not a NumPy array.")
+
+    except Exception as e:
+        logger.error(f"[Embedder] Failed to generate embeddings: {repr(e)}")
+        return []

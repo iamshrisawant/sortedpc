@@ -56,3 +56,5 @@ dist/
 *.bak
 *.swp
 *.swo
+
+watcher_launch.log

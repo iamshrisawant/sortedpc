@@ -4,23 +4,20 @@ from typing import List, Union, Dict
 
 # --- Base paths ---
 ROOT_DIR = Path(__file__).resolve().parents[3]  # from src/core/utils -> ROOT
-DATA_DIR = ROOT_DIR / "src/data"
-FAISS_DIR = DATA_DIR / "faiss"
+DATA_DIR = ROOT_DIR / "src" / "data"
 
 # --- Data files ---
 PATHS_FILE = DATA_DIR / "paths.json"
 CONFIG_FILE = DATA_DIR / "config.json"
 LOGS_FILE = DATA_DIR / "logs.jsonl"
 
-# --- FAISS files ---
-FAISS_INDEX_FILE = FAISS_DIR / "index.faiss"
-FAISS_METADATA_FILE = FAISS_DIR / "index_meta.jsonl"
-
+# --- FAISS files (directly in data/) ---
+FAISS_INDEX_FILE = DATA_DIR / "index.faiss"
+FAISS_METADATA_FILE = DATA_DIR / "index_meta.jsonl"
 
 # --- Path normalization ---
 def normalize_path(p: Union[str, Path]) -> str:
     return str(Path(p).expanduser().resolve())
-
 
 # --- File path accessors ---
 def get_paths_file() -> Path:
@@ -32,28 +29,26 @@ def get_config_file() -> Path:
 def get_logs_path() -> Path:
     return LOGS_FILE
 
-def get_faiss_dir() -> Path:
-    return FAISS_DIR
-
 def get_faiss_index_path() -> Path:
     return FAISS_INDEX_FILE
 
 def get_faiss_metadata_path() -> Path:
     return FAISS_METADATA_FILE
 
+def get_data_dir() -> Path:
+    return DATA_DIR
+
 def get_unsorted_folder() -> Path:
     return Path.home() / "Documents" / "sortedpc" / "unsorted"
 
-
-# --- Paths.json accessors ---
+# --- paths.json accessors ---
 def get_watch_paths() -> List[str]:
     return _load_list_from_json(PATHS_FILE, "watch_paths")
 
 def get_organized_paths() -> List[str]:
     return _load_list_from_json(PATHS_FILE, "organized_paths")
 
-
-# --- Config.json accessors ---
+# --- config.json accessors ---
 def get_builder_state() -> bool:
     return _load_config_flag("builder_busy")
 
@@ -66,8 +61,7 @@ def get_watcher_state() -> bool:
 def get_scoring_weights() -> Dict[str, float]:
     return _load_dict_from_json(CONFIG_FILE, keys=["alpha", "beta", "gamma", "delta"])
 
-
-# --- Log access helpers ---
+# --- log access helpers ---
 def load_all_logs() -> List[Dict]:
     if not LOGS_FILE.exists():
         return []
@@ -85,7 +79,6 @@ def get_correction_logs() -> Dict[str, Dict]:
     return {
         log["file_path"]: log for log in logs if log.get("category") == "corrections"
     }
-
 
 # --- Internal shared loaders ---
 def _load_list_from_json(path: Path, key: str) -> List[str]:
