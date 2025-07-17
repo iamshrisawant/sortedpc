@@ -41,6 +41,9 @@ def get_data_dir() -> Path:
 def get_unsorted_folder() -> Path:
     return Path.home() / "Documents" / "sortedpc" / "unsorted"
 
+def get_watcherlog() -> Path:
+    return DATA_DIR / "watcher_launch.log"
+
 # --- paths.json accessors ---
 def get_watch_paths() -> List[str]:
     return _load_list_from_json(PATHS_FILE, "watch_paths")

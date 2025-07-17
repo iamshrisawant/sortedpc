@@ -37,8 +37,9 @@
   </Triggers>
   <Actions Context="Author">
     <Exec>
-      <Command>C:\Users\SHRISW~1\DOCUME~1\SHRISW~1\Extras\Projects\sortedpc\src\watcher_launch.vbs</Command>
-      <Arguments></Arguments>
+      <Command>C:\Users\Shriswarup Sawant\Documents\Shriswarup\Extras\Projects\sortedpc\venv\Scripts\pythonw.exe</Command>
+      <Arguments>-m src.core.pipelines.watcher</Arguments>
+      <WorkingDirectory>C:\Users\Shriswarup Sawant\Documents\Shriswarup\Extras\Projects\sortedpc</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

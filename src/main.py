@@ -287,7 +287,7 @@ def menu():
         print("4. View / apply correction")
         print("5. Run full reinforcement")
         print("6. Reset everything")
-        print("7. Exit")
+        print("7. Exit - Please exit before closing the window/shutting down.")
         choice = input("Select: ").strip()
 
         if choice == "1":

@@ -1,6 +1,5 @@
 import time
 import json
-import logging
 from pathlib import Path
 from typing import Dict
 
@@ -13,15 +12,6 @@ from src.core.utils.notifier import notify_system_event
 from src.core.pipelines.sorter import handle_new_file
 from src.core.pipelines.actor import act_on_file
 
-# Set up logging to file (before any log statements)
-logging.basicConfig(
-    filename=r"C:\Users\Shriswarup Sawant\Documents\Shriswarup\Extras\Projects\sortedpc\watcher_launch.log",
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
-)
-logger = logging.getLogger(__name__)
-
-
 # ─── Config ────────────────────────────────────────────────────
 
 def load_config() -> Dict:
@@ -33,8 +23,7 @@ def update_watcher_state(online: bool):
     config["watcher_online"] = online
     get_config_file().write_text(json.dumps(config, indent=2), encoding="utf-8")
 
-
-# ─── Watcher Logic ──────────────────────────────────────────
+# ─── Watcher Logic ─────────────────────────────────────────────
 
 def is_valid_file(path: Path) -> bool:
     return (
@@ -44,7 +33,6 @@ def is_valid_file(path: Path) -> bool:
     )
 
 def watcher_loop(poll_interval: float = 3.0):
-    logger.info("[Watcher] Initializing watcher loop...")
     update_watcher_state(True)
     notify_system_event("Watcher Online", "SortedPC is now monitoring new files.")
 
@@ -57,7 +45,6 @@ def watcher_loop(poll_interval: float = 3.0):
             for folder_str in watch_dirs:
                 folder = Path(folder_str).resolve()
                 if not folder.exists() or not folder.is_dir():
-                    logger.warning(f"[Watcher] Skipping invalid path: {folder}")
                     continue
 
                 for file_path in folder.rglob("*"):
@@ -71,7 +58,6 @@ def watcher_loop(poll_interval: float = 3.0):
                         ):
                             continue
 
-                        logger.info(f"[Watcher] Detected new file: {resolved.name}")
                         extracted = extract(resolved)
                         chunks = chunk_text(extracted["content"])
                         embeddings = embed_texts(chunks)
@@ -90,36 +76,37 @@ def watcher_loop(poll_interval: float = 3.0):
                         act_on_file(sorted_data)
 
                         seen_files.add(str(resolved))
-                        logger.info(f"[Watcher] Processed and sorted: {resolved.name}")
 
                     except Exception as e:
-                        logger.warning(f"[Watcher] Failed to process {file_path.name}: {e}")
+                        notify_system_event(
+                            "Watcher Error",
+                            f"Failed to process {file_path.name}: {e}"
+                        )
 
             time.sleep(poll_interval)
 
     except KeyboardInterrupt:
-        logger.info("[Watcher] Interrupted by user.")
+        notify_system_event("Watcher Stopped", "SortedPC watcher interrupted by user.")
+        update_watcher_state(False)
 
     finally:
         update_watcher_state(False)
-        logger.info("[Watcher] Watcher stopped.")
+        notify_system_event("Watcher Offline", "SortedPC watcher has stopped.")
 
-
-# ─── API ──────────────────────────────────────────
+# ─── API ───────────────────────────────────────────────────────
 
 def start_watcher():
     watcher_loop()
 
 def kill_watcher():
     update_watcher_state(False)
-    logger.info("[Watcher] Kill signal sent: watcher_online = False")
+    notify_system_event("Watcher Stopped", "Watcher was killed by SortedPC.")
 
 def get_watcher_state() -> bool:
     return load_config().get("watcher_online", False)
 
-
-# ─── Entry Point ─────────────────────────────────────────
+# ─── Entry Point ───────────────────────────────────────────────
 
 if __name__ == "__main__":
-    logger.info("[Watcher] Standalone launch detected. Initializing...")
+    notify_system_event("Watcher Launch", "Watcher launched directly.")
     start_watcher()
