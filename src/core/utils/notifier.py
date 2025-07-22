@@ -1,74 +1,64 @@
+# [src/core/utils/notifier.py] — With Modern Toast Notifications
+
 import logging
-import platform
-import subprocess
 from pathlib import Path
-from typing import List, Optional
 
-from plyer import notification
+# Action: Import a modern, dedicated library for Windows notifications.
+# This is more reliable and simpler than using a general-purpose wrapper
+# like plyer and eliminates the need for a complex PowerShell fallback.
+try:
+    from windows_toasts import Toast, WindowsToaster
+    TOASTS_ENABLED = True
+except ImportError:
+    # If the library isn't installed, gracefully disable notifications
+    # without crashing the application.
+    TOASTS_ENABLED = False
 
-# --- Logger Setup ---
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
+# Action: Create a single, reusable toaster instance for the application.
+# This is more efficient than creating a new notifier process for every toast.
+if TOASTS_ENABLED:
+    toaster = WindowsToaster('SortedPC')
 
-# --- File Event Notification (used by actor) ---
-def notify_file_sorted(
-    file_path: str,
-    final_folder: str,
-    similar_folders: Optional[List[str]] = None
-) -> None:
-    file_name = Path(file_path).name
-    title = "File Sorted"
-    message = f"{file_name} was sorted into:\n{final_folder}"
+def notify_file_sorted(file_path: str, final_folder: str, similar_folders: list):
+    """
+    Notifies the user that a file has been successfully sorted.
+    This function is now simpler and more direct.
+    """
+    # The logger remains for internal tracking.
+    logger.info(f"File sorted: {Path(file_path).name} -> {final_folder}")
 
-    if similar_folders:
-        sim_text = ", ".join(similar_folders[:3])
-        message += f"\nSimilar folders: {sim_text}"
+    if not TOASTS_ENABLED:
+        return
 
-    _notify(title, message)
+    # Action: Create and display a toast using simple object methods.
+    try:
+        new_toast = Toast()
+        new_toast.text_fields = [f"Sorted: {Path(file_path).name}", f"Destination: {final_folder}"]
+        
+        # This approach makes it easy to add more features in the future,
+        # such as icons or buttons, without complex string manipulation.
+        # Example:
+        # from src.core.utils.paths import get_icon_path
+        # if get_icon_path().exists():
+        #     new_toast.AddImage(ToastDisplayImage.fromPath(str(get_icon_path())))
 
+        toaster.show_toast(new_toast)
+    except Exception as e:
+        # The error handling is now simpler, as we only have one notification method.
+        logger.warning(f"Failed to send toast notification: {e}")
 
-# --- System Events (used by watcher, builder, initializer) ---
-def notify_system_event(event: str, detail: Optional[str] = None) -> None:
-    title = f"[SortedPC] {event}"
-    message = detail or ""
-    _notify(title, message)
+def notify_system_event(title: str, message: str):
+    """Notifies the user of a high-level system event (e.g., startup, shutdown)."""
+    logger.info(f"System Event: {title} - {message}")
 
-
-# --- Internal notification handler ---
-def _notify(title: str, message: str) -> None:
-    truncated_msg = message[:247] + "..." if len(message) > 250 else message
+    if not TOASTS_ENABLED:
+        return
 
     try:
-        notification.notify(
-            title=title,
-            message=truncated_msg,
-            timeout=5  # seconds
-        )
-        logger.info(f"[Notifier] Toast sent using plyer: {title}")
+        new_toast = Toast()
+        new_toast.text_fields = [title, message]
+        toaster.show_toast(new_toast)
     except Exception as e:
-        logger.warning(f"[Notifier] plyer failed: {e}")
-        _powershell_fallback(title, truncated_msg)
-
-
-# --- PowerShell Fallback (in case plyer fails) ---
-def _powershell_fallback(title: str, message: str) -> None:
-    if platform.system() == "Windows":
-        try:
-            escaped_title = title.replace('"', '`"')
-            escaped_msg = message.replace('"', '`"')
-
-            ps_script = f'''
-            [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-            $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
-            $template.SelectSingleNode("//text[@id=1]").InnerText = "{escaped_title}"
-            $template.SelectSingleNode("//text[@id=2]").InnerText = "{escaped_msg}"
-            $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
-            $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("SortedPC")
-            $notifier.Show($toast)
-            '''
-
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], capture_output=True, text=True)
-            logger.info("[Notifier] PowerShell fallback toast sent.")
-        except Exception as fallback_error:
-            logger.warning(f"[Notifier] PowerShell fallback failed: {fallback_error}")
+        logger.warning(f"Failed to send system event toast: {e}")

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from src.core.utils.paths import get_faiss_index_path, get_faiss_metadata_path
-from src.core.utils.embedder import get_embedding_dim
+from src.core.utils.processor import embedding_dim
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def retrieve_similar(
     try:
         # Load index
         index = faiss.read_index(str(index_path))
-        expected_dim = get_embedding_dim()
+        expected_dim = embedding_dim
 
         # Prepare query
         query_array = np.array(query_embeddings, dtype=np.float32)

@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any
 
-from src.core.utils.embedder import get_embedding_dim
+from src.core.utils.processor import embedding_dim
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ def index_file(
             embedding_array = embedding_array.reshape(1, -1)
 
         actual_dim = embedding_array.shape[1]
-        expected_dim = get_embedding_dim()
+        expected_dim = embedding_dim
 
         if actual_dim != expected_dim:
             raise ValueError(f"[Indexer] Embedding dim mismatch: expected {expected_dim}, got {actual_dim}")
