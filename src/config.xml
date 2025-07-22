@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Date>2025-07-16T00:00:00</Date>
+    <Date>2025-07-21T00:00:00</Date>
     <Author>SHRIPC\Shriswarup Sawant</Author>
     <URI>\SortedPC_Watcher</URI>
   </RegistrationInfo>
@@ -18,26 +18,29 @@
     <StartWhenAvailable>true</StartWhenAvailable>
     <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <AllowHardTerminate>true</AllowHardTerminate>
-    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <Enabled>true</Enabled>
-    <Hidden>false</Hidden>
+    <!-- This is the key change to ensure the task runs silently -->
+    <Hidden>true</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <WakeToRun>false</WakeToRun>
+    <WakeToRun>true</WakeToRun>
     <Priority>7</Priority>
-    <IdleSettings>
-      <StopOnIdleEnd>true</StopOnIdleEnd>
-      <RestartOnIdle>false</RestartOnIdle>
-    </IdleSettings>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
   </Settings>
   <Triggers>
+    <BootTrigger>
+      <Enabled>true</Enabled>
+    </BootTrigger>
     <LogonTrigger>
-      <StartBoundary>2025-07-16T18:49:00</StartBoundary>
       <Enabled>true</Enabled>
     </LogonTrigger>
   </Triggers>
   <Actions Context="Author">
     <Exec>
-      <Command>C:\Users\Shriswarup Sawant\Documents\Shriswarup\Extras\Projects\sortedpc\venv\Scripts\pythonw.exe</Command>
+      <Command>C:\Users\Shriswarup Sawant\Documents\Shriswarup\Extras\Projects\sortedpc\venv\Scripts\python.exe</Command>
       <Arguments>-m src.core.pipelines.watcher</Arguments>
       <WorkingDirectory>C:\Users\Shriswarup Sawant\Documents\Shriswarup\Extras\Projects\sortedpc</WorkingDirectory>
     </Exec>

@@ -13,7 +13,8 @@ from src.core.utils.paths import (
     get_data_dir,
 )
 from src.core.utils.notifier import notify_system_event
-from src.core.utils.embedder import get_embedding_dim
+from src.core.utils.embedder import get_embedding_dim, load_model  # 🔁 Updated
+# ───────────────────────────────────────────────────────────────
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
@@ -28,7 +29,6 @@ DEFAULT_PATHS = {
 DEFAULT_CONFIG = {
     "faiss_built": False,
     "builder_busy": False,
-    "watcher_online": False,
     "alpha": 0.6,
     "beta": 0.3,
     "gamma": 0.05,
@@ -45,12 +45,10 @@ def ensure_file(path: Path, default_data=None):
             path.write_text("", encoding="utf-8")
         logger.info(f"[Initializer] Created: {path}")
 
-
 def ensure_unsorted_folder():
     folder = get_unsorted_folder()
     folder.mkdir(parents=True, exist_ok=True)
     logger.info(f"[Initializer] Ensured unsorted folder: {folder}")
-
 
 def ensure_faiss_files():
     dim = get_embedding_dim()
@@ -68,18 +66,15 @@ def ensure_faiss_files():
         logger.info(f"[Initializer] Creating empty metadata file at: {metadata_path}")
         metadata_path.write_text("[]", encoding="utf-8")
 
-
 # --- Reset Logic ---
 def reset_all():
     logger.warning("[Initializer] Resetting system state...")
 
-    # Remove log file
     logs_path = get_logs_path()
     if logs_path.exists():
         logs_path.unlink()
         logger.info("[Initializer] Cleared logs.jsonl")
 
-    # Remove all files in data dir
     data_dir = get_data_dir()
     if data_dir.exists():
         for file in data_dir.iterdir():
@@ -88,15 +83,12 @@ def reset_all():
         logger.info("[Initializer] Cleared data files")
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write fresh paths/config/log files
     get_paths_file().write_text(json.dumps(DEFAULT_PATHS, indent=2), encoding="utf-8")
     get_config_file().write_text(json.dumps(DEFAULT_CONFIG, indent=2), encoding="utf-8")
     get_logs_path().write_text("", encoding="utf-8")
 
-    # Create new FAISS index + metadata
     ensure_faiss_files()
     logger.info("[Initializer] All system files reset.")
-
 
 # --- Checks ---
 def all_critical_files_exist() -> bool:
@@ -107,7 +99,6 @@ def all_critical_files_exist() -> bool:
         get_faiss_index_path().exists(),
         get_faiss_metadata_path().exists()
     ])
-
 
 # --- Initialization Entry ---
 def initialize(force_reset: bool = False):
@@ -122,13 +113,17 @@ def initialize(force_reset: bool = False):
 
     ensure_unsorted_folder()
 
+    # 🔁 Preload model to ensure it's cached before watcher starts
+    try:
+        load_model(local_only=False)
+    except Exception as e:
+        logger.error(f"[Initializer] Failed to preload embedding model: {e}")
+
     logger.info("[Initializer] System initialized.")
     notify_system_event("System Initialized", "SortedPC is ready to use.")
 
-
 def run_initializer(force_reset: bool = False):
     initialize(force_reset=force_reset)
-
 
 # --- CLI Entrypoint ---
 if __name__ == "__main__":

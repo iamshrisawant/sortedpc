@@ -1,55 +1,98 @@
-import time
-import json
-from pathlib import Path
-from typing import Dict
+# watcher.py
 
+import time
+import os
+from pathlib import Path
+
+# --- MODIFIED IMPORTS ---
+# Imports for extract, chunker, and embedder are removed.
+# Import for actor is also removed as it's no longer called from here.
 from src.core.utils.paths import get_config_file, get_watch_paths
-from src.core.utils.extractor import extract
-from src.core.utils.chunker import chunk_text
-from src.core.utils.embedder import embed_texts
 from src.core.utils.logger import has_been_handled
 from src.core.utils.notifier import notify_system_event
-from src.core.pipelines.sorter import handle_new_file
-from src.core.pipelines.actor import act_on_file
+from src.core.pipelines.sorter import handle_new_file # Sorter is now the main entry point
+# --- END MODIFIED IMPORTS ---
 
-# ─── Config ────────────────────────────────────────────────────
+# ─── PID Tracking ──────────────────────────────────────────────
 
-def load_config() -> Dict:
-    path = get_config_file()
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+def is_pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+    except Exception:
+        return False
 
-def update_watcher_state(online: bool):
-    config = load_config()
-    config["watcher_online"] = online
-    get_config_file().write_text(json.dumps(config, indent=2), encoding="utf-8")
+def get_pid_file() -> Path:
+    return get_config_file().with_name("watcher.pid")
 
-# ─── Watcher Logic ─────────────────────────────────────────────
+def write_pid():
+    try:
+        pid_file = get_pid_file()
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(os.getpid()), encoding="utf-8")
+        print(f"[Watcher] PID {os.getpid()} written to: {pid_file}")
+    except Exception as e:
+        notify_system_event("Watcher Error", f"Fatal: Failed to write PID file: {e}")
+        print(f"[Watcher] FATAL ERROR: Could not write PID file: {e}")
+        raise RuntimeError("PID write failed")
+
+def clear_pid():
+    pid_file = get_pid_file()
+    if pid_file.exists():
+        try:
+            pid_file.unlink()
+            print(f"[Watcher] PID file deleted: {pid_file}")
+        except Exception as e:
+            print(f"[Watcher] WARNING: Failed to delete PID file on exit: {e}")
+
+# ─── File Validation ───────────────────────────────────────────
 
 def is_valid_file(path: Path) -> bool:
     return (
         path.is_file() and
         not path.name.startswith(("~", ".")) and
-        path.suffix.lower() not in {".tmp", ".ds_store"}
+        path.suffix.lower() not in {".tmp", ".ds_store", ".crdownload"}
     )
 
+# ─── Main Watcher Loop (Patched) ───────────────────────────────
+
 def watcher_loop(poll_interval: float = 3.0):
-    update_watcher_state(True)
+    pid_file = get_pid_file()
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text())
+            if is_pid_alive(pid):
+                print(f"[Watcher] ABORTED: Another instance (PID: {pid}) is already running.")
+                return
+        except (ValueError, FileNotFoundError):
+            print("[Watcher] Found stale PID file. Proceeding to start a new instance.")
+            pass
+
+    try:
+        write_pid()
+    except RuntimeError:
+        return
+
     notify_system_event("Watcher Online", "SortedPC is now monitoring new files.")
+    print("[Watcher] Online and monitoring...")
 
     watch_dirs = get_watch_paths()
     seen_files = set()
     boot_time = time.time()
 
     try:
-        while load_config().get("watcher_online", True):
+        while True:
             for folder_str in watch_dirs:
                 folder = Path(folder_str).resolve()
-                if not folder.exists() or not folder.is_dir():
+                if not folder.is_dir():
                     continue
 
                 for file_path in folder.rglob("*"):
                     try:
                         resolved = file_path.resolve()
+
                         if (
                             not is_valid_file(resolved) or
                             resolved.stat().st_mtime < boot_time or
@@ -58,55 +101,42 @@ def watcher_loop(poll_interval: float = 3.0):
                         ):
                             continue
 
-                        extracted = extract(resolved)
-                        chunks = chunk_text(extracted["content"])
-                        embeddings = embed_texts(chunks)
-
-                        file_data = {
-                            "file_path": str(resolved),
-                            "file_name": extracted["file_name"],
-                            "parent_folder": extracted["parent_folder"],
-                            "parent_folder_path": extracted["parent_folder_path"],
-                            "file_type": extracted["file_type"],
-                            "content_hash": extracted["content_hash"],
-                            "embeddings": embeddings,
-                        }
-
-                        sorted_data = handle_new_file(file_data)
-                        act_on_file(sorted_data)
-
+                        # --- MODIFIED CORE LOGIC ---
+                        # The watcher's responsibility now ends here. It finds a valid,
+                        # new file and passes its path directly to the sorter pipeline.
+                        # All processing, sorting, and acting happens downstream.
+                        print(f"[Watcher] Detected new file, delegating to sorter: {resolved.name}")
+                        handle_new_file(str(resolved))
+                        
+                        # Add to seen_files to prevent re-processing in the same session
                         seen_files.add(str(resolved))
+                        # --- END OF MODIFIED CORE LOGIC ---
 
                     except Exception as e:
-                        notify_system_event(
-                            "Watcher Error",
-                            f"Failed to process {file_path.name}: {e}"
-                        )
+                        notify_system_event("Watcher Error", f"Failed to delegate {file_path.name}: {e}")
+                        print(f"[Watcher] ERROR: Failed to delegate file {file_path.name}: {e}")
 
             time.sleep(poll_interval)
 
     except KeyboardInterrupt:
-        notify_system_event("Watcher Stopped", "SortedPC watcher interrupted by user.")
-        update_watcher_state(False)
+        notify_system_event("Watcher Stopped", "Watcher interrupted by user.")
+        print("\n[Watcher] Interrupted by user. Shutting down.")
 
     finally:
-        update_watcher_state(False)
-        notify_system_event("Watcher Offline", "SortedPC watcher has stopped.")
+        clear_pid()
+        notify_system_event("Watcher Offline", "Watcher has stopped.")
+        print("[Watcher] Stopped and offline.")
 
-# ─── API ───────────────────────────────────────────────────────
+# ─── Public API & Entry Point (Unchanged) ─────────────────────────
 
 def start_watcher():
     watcher_loop()
 
 def kill_watcher():
-    update_watcher_state(False)
+    clear_pid()
     notify_system_event("Watcher Stopped", "Watcher was killed by SortedPC.")
-
-def get_watcher_state() -> bool:
-    return load_config().get("watcher_online", False)
-
-# ─── Entry Point ───────────────────────────────────────────────
 
 if __name__ == "__main__":
     notify_system_event("Watcher Launch", "Watcher launched directly.")
+    print("[Watcher] Launching watcher from __main__.")
     start_watcher()

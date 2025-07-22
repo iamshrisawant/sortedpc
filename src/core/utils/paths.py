@@ -1,6 +1,10 @@
 import json
 from pathlib import Path
 from typing import List, Union, Dict
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 # --- Base paths ---
 ROOT_DIR = Path(__file__).resolve().parents[3]  # from src/core/utils -> ROOT
@@ -41,8 +45,18 @@ def get_data_dir() -> Path:
 def get_unsorted_folder() -> Path:
     return Path.home() / "Documents" / "sortedpc" / "unsorted"
 
-def get_watcherlog() -> Path:
-    return DATA_DIR / "watcher_launch.log"
+def get_xml() -> Path:
+    path = ROOT_DIR / "src" / "config.xml"
+    if not path.exists():
+        logger.warning(f"[Paths] config.xml not found at expected location: {path}")
+    return path
+
+def get_project_root_for_imports() -> Path:
+    return ROOT_DIR.parent.parent.parent.parent
+
+
+def get_watcher_log() -> Path:
+    return ROOT_DIR / "src" / "watcher_launch.log"
 
 # --- paths.json accessors ---
 def get_watch_paths() -> List[str]:

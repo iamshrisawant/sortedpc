@@ -1,11 +1,12 @@
+# builder.py
+
 import json
 import logging
 from pathlib import Path
 from typing import List
 
-from src.core.utils.extractor import extract
-from src.core.utils.chunker import chunk_text
-from src.core.utils.embedder import embed_texts
+# The builder now imports the single master function from the processor
+from src.core.utils.processor import process_file
 from src.core.utils.indexer import index_file
 from src.core.utils.paths import (
     get_config_file,
@@ -59,32 +60,31 @@ def process_folder(folder_path: str) -> None:
 
         try:
             logger.info(f"[Builder] Found: {file_path.name}")
-            data = extract(str(file_path))
-            chunks = chunk_text(data["content"])
+            
+            # --- MODIFIED BLOCK ---
+            # Single call to the processor replaces the old multi-step process
+            processed_data = process_file(file_path)
 
-            if not chunks:
-                logger.warning(f"[Builder] No content to embed for: {file_path.name}")
+            # Check if processing was successful and yielded embeddings
+            if not processed_data or not processed_data.get("embeddings"):
+                logger.warning(f"[Builder] Processing failed or yielded no embeddings for: {file_path.name}")
                 continue
 
-            embeddings = embed_texts(chunks)
-
-            if not embeddings:
-                logger.warning(f"[Builder] Embedding failed or empty for: {file_path.name}")
-                continue
-
+            # Pass the processed data directly to the indexer
             index_file(
-                embeddings=embeddings,
+                embeddings=processed_data["embeddings"],
                 file_metadata={
                     "file_path": str(file_path.resolve()),
-                    "file_name": data["file_name"],
-                    "parent_folder": data["parent_folder"],
-                    "parent_folder_path": data["parent_folder_path"],
-                    "file_type": data["file_type"],
-                    "content_hash": data["content_hash"],
+                    "file_name": processed_data["file_name"],
+                    "parent_folder": processed_data["parent_folder"],
+                    "parent_folder_path": processed_data["parent_folder_path"],
+                    "file_type": processed_data["file_type"],
+                    "content_hash": processed_data["content_hash"],
                 },
                 faiss_index_path=get_faiss_index_path(),
                 metadata_store_path=get_faiss_metadata_path(),
             )
+            # --- END MODIFIED BLOCK ---
 
         except Exception as e:
             logger.warning(f"[Builder] Failed to process {file_path.name}: {repr(e)}")
