@@ -1,62 +1,81 @@
-# src/core/utils/retriever.py
-
-import json
-import numpy as np
 import faiss
+import json
+import logging
+import numpy as np
 from pathlib import Path
-from typing import List, Dict, Tuple
-from loguru import logger
+from typing import List, Dict, Any
+
+from src.core.utils.paths import get_faiss_index_path, get_faiss_metadata_path
+from src.core.utils.embedder import get_embedding_dim
+
+# --- Logger Setup ---
+logger = logging.getLogger(__name__)
 
 
-class Retriever:
-    def __init__(self, index_path: str, meta_path: str):
-        self.index_path = Path(index_path)
-        self.meta_path = Path(meta_path)
+def retrieve_similar(
+    query_embeddings: List[List[float]],
+    top_k: int = 10
+) -> List[Dict[str, Any]]:
+    """
+    Performs similarity search for given embeddings and returns top-k matches.
 
-        if not self.index_path.exists():
-            raise FileNotFoundError(f"[Retriever] Missing index: {self.index_path}")
-        if not self.meta_path.exists():
-            raise FileNotFoundError(f"[Retriever] Missing metadata: {self.meta_path}")
+    Args:
+        query_embeddings (List[List[float]]): Embedding vectors of query chunks.
+        top_k (int): Number of matches to retrieve per chunk.
 
-        self.index = faiss.read_index(str(self.index_path))
-        with self.meta_path.open("r", encoding="utf-8") as f:
-            self.meta: List[Dict] = json.load(f)
+    Returns:
+        List[Dict]: Match metadata including distance and index info.
+    """
+    if not query_embeddings:
+        logger.warning("[Retriever] No embeddings provided for retrieval.")
+        return []
 
-        if len(self.meta) != self.index.ntotal:
-            raise ValueError(f"[Retriever] Metadata count ({len(self.meta)}) ≠ index entries ({self.index.ntotal})")
+    index_path = get_faiss_index_path()
+    metadata_path = get_faiss_metadata_path()
 
-        logger.info(f"[Retriever] Index loaded with {self.index.ntotal} vectors")
+    if not index_path.exists():
+        raise FileNotFoundError(f"[Retriever] FAISS index missing: {index_path}")
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"[Retriever] Metadata file missing: {metadata_path}")
 
-    def search(self, embedding: List[float], k: int = 5) -> List[Tuple[Dict, float]]:
-        if self.index.ntotal == 0:
-            logger.warning("[Retriever] Empty index")
-            return []
+    try:
+        # Load index
+        index = faiss.read_index(str(index_path))
+        expected_dim = get_embedding_dim()
 
-        query = np.array([embedding], dtype="float32")
-        if query.shape[1] != self.index.d:
-            raise ValueError(f"[Retriever] Query dim {query.shape[1]} ≠ index dim {self.index.d}")
+        # Prepare query
+        query_array = np.array(query_embeddings, dtype=np.float32)
+        if query_array.ndim == 1:
+            query_array = query_array.reshape(1, -1)
 
-        distances, indices = self.index.search(query, k)
+        actual_dim = query_array.shape[1]
+        if actual_dim != expected_dim:
+            raise ValueError(f"[Retriever] Embedding dimension mismatch: expected {expected_dim}, got {actual_dim}")
+
+        # Perform search
+        D, I = index.search(query_array, top_k)
+
+        # Load metadata
+        with metadata_path.open("r", encoding="utf-8") as f:
+            metadata = json.load(f)
+
+        # Collect results
         results = []
+        for q_idx, (distances, indices) in enumerate(zip(D, I)):
+            for dist, idx in zip(distances, indices):
+                if idx == -1 or idx >= len(metadata):
+                    continue
+                match = metadata[idx].copy()
+                match.update({
+                    "distance": float(dist),
+                    "match_index": idx,
+                    "query_chunk": q_idx
+                })
+                results.append(match)
 
-        for idx, dist in zip(indices[0], distances[0]):
-            if 0 <= idx < len(self.meta):
-                results.append((self.meta[idx], float(dist)))
-            else:
-                logger.warning(f"[Retriever] Invalid index {idx} in results")
-
-        logger.debug(f"[Retriever] Top-{len(results)} retrieved")
+        logger.info(f"[Retriever] Retrieved {len(results)} matches for {len(query_array)} query chunk(s).")
         return results
 
-    def get_text_snippets(self, results: List[Tuple[Dict, float]]) -> List[Tuple[str, str]]:
-        snippets = []
-        for meta, _ in results:
-            folder = meta.get("folder")
-            filename = meta.get("filename")
-            chunk_text = meta.get("chunk_text", "").strip()
-
-            if folder and filename and chunk_text:
-                full_path = str(Path("organized_folders") / folder / filename)
-                snippets.append((full_path, chunk_text))
-
-        return snippets
+    except Exception as e:
+        logger.error(f"[Retriever] Retrieval failed: {repr(e)}")
+        return []
