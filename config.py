@@ -1,11 +1,12 @@
 import os
 
-# CRITICAL: Disable SSL Verify to bypass proxy/corporate blocking issues
-os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
+# Set these to False if the user has a working internet connection
+OFFLINE_MODE = True 
 
-# CRITICAL: Force Offline Mode to prevent network errors if model is cached
-os.environ['TRANSFORMERS_OFFLINE'] = '1'
-os.environ['HF_HUB_OFFLINE'] = '1'
+if OFFLINE_MODE:
+    os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
+    os.environ['TRANSFORMERS_OFFLINE'] = '1'
+    os.environ['HF_HUB_OFFLINE'] = '1'
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
