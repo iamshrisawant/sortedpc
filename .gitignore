@@ -1,11 +1,21 @@
-# Python bytecode
+# --- Python Bytecode & Environments ---
+__pycache__/
 *.py[cod]
+*$py.class
+.venv/
+env/
+venv/
 
-# Local search indexes and caches
-*.pkl
+# --- SemantiSort Local Caches & Indexes ---
 
-# Generated benchmarking environments
-test_inbox/
-temp_*.txt
 
-# Local output folders
+# --- Local Output & Personal Data ---
+# Folders where the tool moves or copies files locally
+sorted/
+*.log
+
+# --- IDE & OS Metadata ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
