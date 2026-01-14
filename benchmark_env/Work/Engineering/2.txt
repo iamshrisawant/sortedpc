@@ -1,1 +1,0 @@
-Java Virtual Machine Config Heap Size

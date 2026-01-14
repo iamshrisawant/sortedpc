@@ -1,16 +1,11 @@
 # Python bytecode
-__pycache__/
 *.py[cod]
 
 # Local search indexes and caches
 *.pkl
 
 # Generated benchmarking environments
-benchmark_env/
 test_inbox/
-env_Phase_*/
-test_inbox_*/
 temp_*.txt
 
 # Local output folders
-sorted/
