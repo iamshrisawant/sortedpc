@@ -3,8 +3,15 @@ import shutil
 import time
 import random
 import string
+
+# CRITICAL: Force Offline Mode before importing transformers to prevent network errors
+os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
+os.environ['TRANSFORMERS_OFFLINE'] = '1'
+os.environ['HF_HUB_OFFLINE'] = '1'
+
 import numpy as np
 import warnings
+from sklearn.datasets import fetch_20newsgroups, load_files, get_data_home
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.metrics.pairwise import cosine_similarity
@@ -14,7 +21,7 @@ from scanner import DynamicScanner
 from sorter import SemantiSorter
 import config
 
-# Suppress technical warnings for cleaner output
+# Suppress technical warnings
 warnings.filterwarnings("ignore")
 
 BENCHMARK_ENV = "benchmark_env"
@@ -26,28 +33,43 @@ def normalize(path):
 
 def generate_noise(text):
     """
-    Simulates real-world 'dirty' data.
-    Adds random prefixes (dates, ids) and noise (boilerplate).
+    Research-Grade Noise Generation:
+    1. Typos (Character swaps/deletions) - OCR Emulation
+    2. Boilerplate insertion
     """
+    # 1. Boilerplate
     prefix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
     date = "2024-10-27"
     boilerplate = "CONFIDENTIAL. This document is intended for the recipient only. Page 1 of 5."
     
-    # Randomly structure the file content
+    noisy_text = text if text else ""
+    
+    # 2. Typos (10% chance per character to swap/drop)
+    chars = list(noisy_text)
+    for i in range(len(chars)):
+        if random.random() < 0.05: # 5% typo rate
+            if random.random() < 0.5:
+                # Swap
+                if i < len(chars) - 1:
+                    chars[i], chars[i+1] = chars[i+1], chars[i]
+            else:
+                # Replace
+                chars[i] = random.choice(string.ascii_lowercase)
+    noisy_text = "".join(chars)
+
     formats = [
-        f"{prefix}_{date} - {text}\n\n{boilerplate}",
-        f"Subject: {text}\nDate: {date}\nRef: {prefix}\n\n{boilerplate}",
-        f"{text} (ID: {prefix})",
-        f"[SCANNED_DOC] {text} ... {boilerplate}"
+        f"{prefix}_{date} - {noisy_text}\n\n{boilerplate}",
+        f"Subject: {noisy_text}\nDate: {date}\nRef: {prefix}\n\n{boilerplate}",
+        f"{noisy_text} (ID: {prefix})",
+        f"[SCANNED_DOC] {noisy_text} ... {boilerplate}"
     ]
     return random.choice(formats)
 
 def setup_env():
-    """Generates the Knowledge Base (Seeds) - The 'Training Set'"""
+    """Generates the Knowledge Base (Seeds)"""
     if os.path.exists(BENCHMARK_ENV): shutil.rmtree(BENCHMARK_ENV)
     os.makedirs(BENCHMARK_ENV)
     
-    # Expanded Seed Set
     seeds = {
         "Work/Finance": [
             "Invoice for Consultant Services - $500", 
@@ -87,11 +109,6 @@ def setup_env():
 # --- Competitors ---
 
 class LexicalSearchBaseline:
-    """
-    Represents the 'Old School' Search approach.
-    Uses TF-IDF vectors + Cosine Similarity.
-    Fast, but dumb (doesn't understand synonyms).
-    """
     def __init__(self, docs, labels):
         self.v = TfidfVectorizer()
         self.X = self.v.fit_transform(docs)
@@ -104,11 +121,6 @@ class LexicalSearchBaseline:
         return self.L[np.argmax(sims)]
 
 class NaiveBayesBaseline:
-    """
-    Represents the 'Standard ML' approach.
-    Uses Multinomial Naive Bayes on TF-IDF features.
-    Probabilistic and robust, but relies heavily on keyword overlap.
-    """
     def __init__(self, docs, labels):
         self.v = TfidfVectorizer()
         X = self.v.fit_transform(docs)
@@ -117,22 +129,15 @@ class NaiveBayesBaseline:
         
     def predict(self, txt):
         vec = self.v.transform([txt])
-        # Get probability to potentially reject low-confidence
         probs = self.clf.predict_proba(vec)[0]
         if max(probs) < 0.2: return "None"
         return self.clf.predict(vec)[0]
 
 class SbertCentroidBaseline:
-    """
-    Represents the 'Lightweight AI' approach.
-    Computes the AVERAGE vector for each folder.
-    Fast, but ignores nuances (e.g. outlier files in a folder).
-    """
     def __init__(self, vectors, labels, model):
         self.model = model
         self.centroids = {}
         counts = {}
-        # Compute mean vector per folder
         for vec, label in zip(vectors, labels):
             if label not in self.centroids:
                 self.centroids[label] = np.zeros_like(vec)
@@ -141,7 +146,6 @@ class SbertCentroidBaseline:
             counts[label] += 1
         
         self.keys = list(self.centroids.keys())
-        # Average them
         self.matrix = np.array([self.centroids[k]/counts[k] for k in self.keys])
 
     def predict(self, txt):
@@ -149,165 +153,231 @@ class SbertCentroidBaseline:
         scores = util.cos_sim(vec, self.matrix)[0]
         return self.keys[np.argmax(scores)]
 
-def run():
-    print("===============================================================")
-    print("   HONEST BENCHMARK: SemantiSort vs Traditional Methods")
-    print("===============================================================")
-    print("Scenario: Sorting a LARGE BACKLOG of noisy files (Personal System Simulation).")
+
+def evaluate_phase(phase_name, train_docs, train_labels, test_data):
+    """
+    Generic Evaluator for both Phase A (Synthetic) and Phase B (Academic).
+    """
+    print(f"\n>>> Running {phase_name} <<<")
+    print(f"Training Size: {len(train_docs)} docs")
+    print(f"Test Size: {len(test_data)} docs")
     
-    # 1. Setup Environment
-    tr_docs, tr_labels = setup_env()
-    print(f"[Setup] Created Knowledge Base with {len(tr_docs)} seed files across {len(set(tr_labels))} categories.")
+    # 1. Setup Models
+    # A. SemantiSort requires a file structure scan
+    # For Phase B, we must fake the directory structure for scanning
     
-    # 2. Initialize Models
-    print("\n[Init] Training Competitors...")
-    old_dest = config.DEST_DIR
-    config.DEST_DIR = BENCHMARK_ENV
+    # Prepare environment for Scanner
+    phase_env = f"env_{phase_name.replace(' ', '_')}"
+    if os.path.exists(phase_env): shutil.rmtree(phase_env)
+    os.makedirs(phase_env)
     
-    # A. SemantiSort (Our System)
-    # We must scan first to build the 'Vector Cloud'
-    DynamicScanner().scan_directory(BENCHMARK_ENV)
+    # Write Training Data to Disk for Scanner
+    for i, (doc, label) in enumerate(zip(train_docs, train_labels)):
+        # Handle label as folder path
+        path = label.replace('.', '/')
+        
+        dpath = os.path.join(phase_env, path)
+        os.makedirs(dpath, exist_ok=True)
+        # Use latin-1 to be safe with newsgroups data
+        with open(os.path.join(dpath, f"{i}.txt"), "w", encoding='latin-1', errors='ignore') as f:
+            f.write(doc)
+            
+    # Scan
+    DynamicScanner().scan_directory(phase_env)
     semanti_sorter = SemantiSorter()
     
-    # B. Lexical Search (Classic)
-    lexical = LexicalSearchBaseline(tr_docs, tr_labels)
+    # B. Baselines
+    lexical = LexicalSearchBaseline(train_docs, train_labels)
+    bayes = NaiveBayesBaseline(train_docs, train_labels)
     
-    # C. Naive Bayes (Standard ML)
-    bayes = NaiveBayesBaseline(tr_docs, tr_labels)
-    
-    # D. SBERT Centroid (Alternative AI)
-    # Reuse the bi-encoder to be fair (same compute power/model size)
+    # C. Centroid
     if semanti_sorter.vectors is not None:
         vectors = semanti_sorter.vectors
-        labels = [i['path'] for i in semanti_sorter.instances]
-        centroid_model = SbertCentroidBaseline(vectors, labels, semanti_sorter.bi_encoder)
+        labels_raw = [i['path'] for i in semanti_sorter.instances]
+        centroid_model = SbertCentroidBaseline(vectors, labels_raw, semanti_sorter.bi_encoder)
     else:
-        print("Critical Error: SemantiSort failed to index.")
+        print("Error: No vectors")
         return
 
-    # 3. Generate Evaluation Data (Unseen by training)
-    # We mix Easy (Lexical) and Hard (Semantic) cases
-    base_cases = [
-        # --- Easy (Keyword Matches) ---
-        ("inv_1.txt", "Invoice for July Services", "Work/Finance"),
-        ("err_1.txt", "Python StackTrace Error", "Work/Engineering"),
-        
-        # --- Medium (Synonyms) ---
-        ("fiscal.txt", "Fiscal Year End Summary", "Work/Finance"), # 'Fiscal' ~= 'Tax/Invoice'
-        ("meds.txt", "Patient Clinical Report", "Personal/Medical"), # 'Clinical' ~= 'Medical'
-        
-        # --- Hard (Ambiguous / Contextual) ---
-        ("aws.txt", "AWS Cloud Server Monthly Cost", "Work/Finance"), # 'AWS' usually Eng, but 'Cost' -> Finance
-        ("python_fin.txt", "Python Script for calculating Taxes", "Work/Engineering"), # 'Taxes' usually Fin, but 'Script' -> Eng
-        ("hiring.txt", "New Developer Onboarding Checklist", "Work/HR"), # Semantically distinct from other Eng docs
-        
-        # --- Out/None (Should be rejected or misclassified if brittle) ---
-        ("random.txt", "Recipe for Chocolate Cake", "None") # Should ideally be None or low score
-    ]
-    
-    test_set = []
-    # Generate 40 variations of each base case (Total ~320 files)
-    # This simulates a "Backlog" or "Pile" found on a neglected personal system
-    files_per_case = 40
-    print(f"[Data] Generative Parameters: {files_per_case} variations per case x {len(base_cases)} cases.")
-    
-    for _ in range(files_per_case): 
-        for fname, content, exp in base_cases:
-            noisy_content = generate_noise(content)
-            unique_name = f"{random.randint(10000,99999)}_{fname}"
-            test_set.append({
-                "name": unique_name,
-                "content": noisy_content,
-                "label": normalize(exp)
-            })
-
-    print(f"[Data] Created a stress-test pile of {len(test_set)} files.")
-    
-    if os.path.exists(TEST_INBOX): shutil.rmtree(TEST_INBOX)
-    os.makedirs(TEST_INBOX)
-
-    # 4. The Race
+    # 2. Run Test Loop with Online Learning Tracking
     models = {
-        "Lexical (TF-IDF)": lexical,
-        "Naive Bayes": bayes,
-        "Centroid (AI)": centroid_model,
-        "SemantiSort (AI)": semanti_sorter # Fits different interface
+        "Lexical": lexical,
+        "Bayes": bayes,
+        "Centroid": centroid_model,
+        "SemantiSort": semanti_sorter
     }
     
-    # Storage for results
     results = {name: {"y_true": [], "y_pred": [], "latencies": []} for name in models}
     
-    print("\n[Run] Processing Pile...")
+    # Prepare Test Inbox
+    test_inbox = f"test_inbox_{phase_name.replace(' ', '_')}"
+    if os.path.exists(test_inbox): shutil.rmtree(test_inbox)
+    os.makedirs(test_inbox)
     
-    # Write files to disk once to simulate real folder conditions
+    # Paths for SemantiSort
     paths = []
-    for item in test_set:
-        fpath = os.path.join(TEST_INBOX, item['name'])
-        with open(fpath, "w") as f: f.write(item['content'])
+    print("Writing verification files to disk...")
+    for i, item in enumerate(test_data):
+        txt = item['content']
+        fname = item['name']
+        fpath = os.path.join(test_inbox, fname)
+        # Use latin-1 for safety
+        with open(fpath, "w", encoding='latin-1', errors='ignore') as f: f.write(txt)
         paths.append(fpath)
-        
-    start_global = time.time()
     
-    for i, item in enumerate(test_set):
+    print("Starting Inference Loop...")
+    
+    # Online Learning Tracker for SemantiSort
+    ss_correct = 0
+    ss_total = 0
+    
+    for i, item in enumerate(test_data):
         text = item['content']
-        truth = item['label']
+        truth = normalize(item['label'])
         fpath = paths[i]
         
-        if i % 50 == 0:
-            print(f"  Processed {i}/{len(test_set)} files...")
+        # Periodic Report (Learning Curve)
+        if i > 0 and i % 50 == 0:
+            acc = ss_correct / ss_total * 100 if ss_total > 0 else 0
+            print(f"  [Batch {i}] SemantiSort Accuracy: {acc:.1f}%")
 
-        # We run each model on the file
         for name, model in models.items():
             t0 = time.time()
+            pred = "None"
             
-            # SemantiSort allows 'None' if confidence is low or folders don't match
-            # But here we force a prediction or capture 'None'
-            
-            if name == "SemantiSort (AI)":
-                # SemantiSort requires file path to respect I/O overhead
-                pred, _, _ = model.predict_folder(fpath)
-                if not pred: pred = "None"
+            if name == "SemantiSort":
+                # SemantiSort returns path like 'sci/med'
+                p, _, _ = model.predict_folder(fpath)
+                if p: 
+                    if phase_name == "Phase B (Academic)":
+                        pred = p.replace('/', '.') 
+                    else:
+                        pred = p
+                else:
+                    pred = "None"
             else:
                 pred = model.predict(text)
                 
             lat = (time.time() - t0) * 1000
             
-            results[name]["y_true"].append(truth if truth != "None" else "None") # Normalize truth
-            results[name]["y_pred"].append(normalize(pred))
+            p_norm = normalize(pred)
+            results[name]["y_true"].append(truth)
+            results[name]["y_pred"].append(p_norm)
             results[name]["latencies"].append(lat)
-
-    print(f"[Done] Benchmarking complete in {time.time() - start_global:.2f}s.")
-    config.DEST_DIR = old_dest # Restore
-
-    # 5. Final Report
-    print("\n" + "="*110)
-    print(f"{'ALGORITHM':<20} | {'ACCURACY':<10} | {'AVG LATENCY':<15} | {'THROUGHPUT':<15} | {'F1-SCORE':<20}")
-    print("-" * 110)
-    
-    best_acc = 0
-    winner = ""
+            
+            if name == "SemantiSort":
+                ss_total += 1
+                if p_norm == truth:
+                    ss_correct += 1
+                    
+    # Report
+    print(f"\n--- Results: {phase_name} ---")
+    print(f"{'ALGORITHM':<20} | {'ACCURACY':<10} | {'LATENCY':<15} | {'F1-SCORE':<20}")
+    print("-" * 80)
     
     for name, data in results.items():
         y_true = data["y_true"]
         y_pred = data["y_pred"]
         lat = np.mean(data["latencies"])
-        
         acc = accuracy_score(y_true, y_pred)
         p, r, f1, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted', zero_division=0)
-        
-        # Throughput: Files per Minute
-        throughput = (60 * 1000) / lat if lat > 0 else 0
-        
-        print(f"{name:<20} | {acc*100:<9.1f}% | {lat:<9.2f} ms    | {throughput:<6.0f} files/min | {f1:.3f}")
-        
-        if acc > best_acc:
-            best_acc = acc
-            winner = name
+        print(f"{name:<20} | {acc*100:<9.1f}% | {lat:<9.2f} ms    | {f1:.3f}")
+    
+    # Cleanup envs
+    if os.path.exists(phase_env): shutil.rmtree(phase_env)
+    if os.path.exists(test_inbox): shutil.rmtree(test_inbox)
 
-    print("-" * 110)
-    print(f"🏆 WINNER: {winner}")
-    print("\nDetailed breakdown for SemantiSort:")
-    print(classification_report(results["SemantiSort (AI)"]["y_true"], results["SemantiSort (AI)"]["y_pred"], zero_division=0))
+
+def run():
+    print("===============================================================")
+    print("   MULTI-DATASET BENCHMARK: Synthethic vs Academic")
+    print("===============================================================")
+    
+    old_dest = config.DEST_DIR
+
+    # --- PHASE A: SYNTHETIC ---
+    tr_docs, tr_labels = setup_env()
+    
+    base_cases = [
+        ("inv_1.txt", "Invoice for July Services", "Work/Finance"),
+        ("err_1.txt", "Python StackTrace Error", "Work/Engineering"),
+        ("fiscal.txt", "Fiscal Year End Summary", "Work/Finance"), 
+        ("meds.txt", "Patient Clinical Report", "Personal/Medical"), 
+        ("aws.txt", "AWS Cloud Server Monthly Cost", "Work/Finance"),
+        ("python_fin.txt", "Python Script for calculating Taxes", "Work/Engineering"),
+        ("hiring.txt", "New Developer Onboarding Checklist", "Work/HR"),
+        ("random.txt", "Recipe for Chocolate Cake", "None") 
+    ]
+    
+    test_set_A = []
+    files_per_case = 40 
+    for _ in range(files_per_case): 
+        for fname, content, exp in base_cases:
+            noisy_content = generate_noise(content)
+            unique_name = f"{random.randint(10000,99999)}_{fname}"
+            test_set_A.append({
+                "name": unique_name,
+                "content": noisy_content,
+                "label": normalize(exp)
+            })
+            
+    try:
+        evaluate_phase("Phase A (Synthetic)", tr_docs, tr_labels, test_set_A)
+    except Exception as e:
+        print(f"Phase A Failed: {e}")
+    
+    # --- PHASE B: ACADEMIC GOLD STANDARD (20 Newsgroups) ---
+    print("\n[Setup] Fetching 20 Newsgroups Dataset...")
+    cats = ['sci.med', 'rec.autos', 'comp.graphics', 'misc.forsale']
+    
+    newsgroups_train = None
+    newsgroups_test = None
+
+    # Robust Load Strategy
+    try:
+        newsgroups_train = fetch_20newsgroups(subset='train', categories=cats, remove=('headers', 'footers', 'quotes'), download_if_missing=False)
+        newsgroups_test = fetch_20newsgroups(subset='test', categories=cats, remove=('headers', 'footers', 'quotes'), download_if_missing=False)
+        print("Success: Loaded via fetch_20newsgroups.")
+    except Exception as e:
+        print(f"Fetch failed ({e}). Attempting direct disk load (load_files)...")
+        # Fallback
+        base_dir = os.path.join(get_data_home(), "20news_home")
+        train_dir = os.path.join(base_dir, "20news-bydate-train")
+        test_dir = os.path.join(base_dir, "20news-bydate-test")
+        
+        if os.path.exists(train_dir) and os.path.exists(test_dir):
+            try:
+                newsgroups_train = load_files(train_dir, categories=cats, encoding='latin-1')
+                newsgroups_test = load_files(test_dir, categories=cats, encoding='latin-1')
+                print(f"Success: Loaded via load_files from {base_dir}")
+            except Exception as e2:
+                print(f"Critical: Failed to load files directly: {e2}")
+                return
+        else:
+             print(f"Critical: Directories not found at {train_dir}")
+             return
+
+    if newsgroups_train is None: return
+
+    tr_docs_B = newsgroups_train.data
+    tr_labels_B = [newsgroups_train.target_names[i] for i in newsgroups_train.target]
+    
+    test_set_B = []
+    for i, (txt, label_idx) in enumerate(zip(newsgroups_test.data, newsgroups_test.target)):
+        if not txt.strip(): continue
+        
+        test_set_B.append({
+            "name": f"news_{i}.txt",
+            "content": txt,
+            "label": normalize(newsgroups_test.target_names[label_idx])
+        })
+    
+    try:
+        evaluate_phase("Phase B (Academic)", tr_docs_B, tr_labels_B, test_set_B)
+    except Exception as e:
+        print(f"Phase B Failed: {e}")
+
+    config.DEST_DIR = old_dest
 
 if __name__ == "__main__":
     run()

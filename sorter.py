@@ -34,6 +34,7 @@ class SemantiSorter:
     def predict_folder(self, file_path):
         """
         Rank-Weighted k-NN + Depth Bias Algorithm.
+        Includes Open-Set Recognition (returns None if < Threshold).
         """
         start = time.time()
         
@@ -45,7 +46,8 @@ class SemantiSorter:
             
         # Contextual Embedding
         fname = os.path.basename(file_path)
-        full_text = f"{fname}\n{text[:1000]}"
+        # Extract text already applies header+footer logic if needed
+        full_text = f"{fname}\n{text}" 
         emb = self.bi_encoder.encode(full_text)
         
         # Step 1: Retrieval
@@ -65,8 +67,7 @@ class SemantiSorter:
             instance = self.instances[idx]
             folder = instance['path']
             
-            # Logarithmic Decay: Rank 0 -> /1, Rank 1 -> /1.58, Rank 2 -> /2 ...
-            # Using log2(Rank + 2) base.
+            # Logarithmic Decay: Rank 0 -> /1, Rank 1 -> /1.58 ...
             decay = math.log2(rank + 2)
             weighted_score = raw_sim / decay
             
@@ -74,12 +75,12 @@ class SemantiSorter:
                 folder_votes[folder] = 0.0
             folder_votes[folder] += weighted_score
             
-        # Step 3: Depth Bias
+        # Step 3: Depth Bias & Thresholding
         best_score = -float('inf')
         best_folder = None
         
         for folder, vote in folder_votes.items():
-            depth = len(folder.split('/')) # Normalized path depth
+            depth = len(folder.split('/')) 
             bias = depth * config.DEPTH_WEIGHT
             final_score = vote + bias
             
@@ -88,7 +89,12 @@ class SemantiSorter:
                 best_folder = folder
                 
         latency = (time.time() - start) * 1000
-        return best_folder, latency, "Rank-Weighted k-NN"
+        
+        # Open-Set Recognition Check
+        if best_score < config.CONFIDENCE_THRESHOLD:
+            return None, latency, f"Rejected (Score {best_score:.2f} < {config.CONFIDENCE_THRESHOLD})"
+            
+        return best_folder, latency, f"Rank-Weighted k-NN ({best_score:.2f})"
 
     def sort_file(self, file_path):
         print(f"Sorting: {os.path.basename(file_path)}")
@@ -103,7 +109,7 @@ class SemantiSorter:
                 shutil.move(file_path, dest_path)
                 
                 # Online Learning: Add new instance immediately
-                new_text = f"{os.path.basename(file_path)}\n{extract_text(dest_path)[:1000]}"
+                new_text = f"{os.path.basename(file_path)}\n{extract_text(dest_path)}"
                 new_vec = self.bi_encoder.encode(new_text)
                 self.instances.append({
                     'path': folder.replace('\\', '/'),
@@ -119,4 +125,4 @@ class SemantiSorter:
             except Exception as e:
                 print(f"Error moving: {e}")
         else:
-            print("  -> Classification failed.")
+            print(f"  -> Classification failed/rejected. [{method}]")

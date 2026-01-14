@@ -5,14 +5,13 @@ import docx
 def extract_text(file_path):
     """
     Robustly extracts text from .txt, .pdf, and .docx files.
-    Returns trimmed string. Returns None on ANY failure to protect system stability.
+    Smart Context: Returns First-500 + Last-500 characters.
     """
     ext = os.path.splitext(file_path)[1].lower()
     text = None
     
     try:
         if ext == '.txt':
-            # Try utf-8 first, then fallback to latin-1
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     text = f.read()
@@ -35,13 +34,17 @@ def extract_text(file_path):
             text = "\n".join([para.text for para in doc.paragraphs])
             
         else:
-            return None # Unsupported extension
+            return None 
 
     except Exception as e:
-        # Catch-all to prevent crashes
         print(f"[Warning] Failed to read {file_path}: {e}")
         return None
 
     if text and len(text.strip()) > 0:
-        return text.strip()
+        clean_text = text.strip()
+        if len(clean_text) > 1000:
+            # Smart Context: Header + Footer
+            # Using concatenation with separator to avoid word merging
+            return clean_text[:500] + "\n...\n" + clean_text[-500:]
+        return clean_text
     return None
