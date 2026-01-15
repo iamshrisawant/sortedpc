@@ -9,9 +9,9 @@ from sentence_transformers import SentenceTransformer, util
 import config
 from utils import extract_text
 
-class SemantiSorter:
+class SortedEngine:
     def __init__(self):
-        print("Loading Bi-Encoder...")
+        print("Loading Sorted Engine (Bi-Encoder)...")
         self.bi_encoder = SentenceTransformer(config.BI_ENCODER_MODEL)
         self.load_index()
 

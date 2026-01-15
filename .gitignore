@@ -7,9 +7,15 @@ env/
 venv/
 
 # --- SemantiSort Local Caches & Indexes ---
-
+# Exclude binary snapshots of the local file system
+*.pkl
+file_index.pkl
+folder_index.pkl
 
 # --- Local Output & Personal Data ---
+benchmark_env/
+inbox
+env_
 # Folders where the tool moves or copies files locally
 sorted/
 *.log

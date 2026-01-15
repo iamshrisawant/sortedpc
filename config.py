@@ -1,6 +1,7 @@
 import os
 
 # Set these to False if the user has a working internet connection
+# Used to prevent network errors in restricted environments
 OFFLINE_MODE = True 
 
 if OFFLINE_MODE:
@@ -25,7 +26,7 @@ BI_ENCODER_MODEL = 'all-MiniLM-L6-v2'
 MIN_FILES_FOR_STATS = 3
 SUPPORTED_EXTENSIONS = {'.txt', '.pdf', '.docx'}
 
-# Rank-Weighted k-NN Parameters
+# Sorted Engine Parameters (Rank-Weighted k-NN)
 K_NEIGHBORS = 5
 DEPTH_WEIGHT = 0.08
 CONFIDENCE_THRESHOLD = 0.5 # Auto-calibrated to 0.5 based on F1-Maximization

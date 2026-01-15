@@ -32,6 +32,7 @@ class DynamicScanner:
                     text = extract_text(fpath)
                     if text:
                         # Encode Filename + Content for maximum semantic signal
+                        # Note: extract_text already limits to Smart Context (Header+Footer)
                         full_content = f"{fname}\n{text[:1000]}"
                         emb = self.model.encode(full_content)
                         instances.append({
