@@ -1,9 +1,22 @@
 # === ENV & CONFIG FILES ===
 *.env
 
+# === PYTHON BYTECODE ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+src/**/__pycache__/
+
+# === Python Virtual Environments ===
+.venv/
+env/
+venv/
+
 # === LOG FILES ===
 *.log
 logs/
+watcher_launch.log
 
 # === MODEL FILES ===
 src/core/models/
@@ -15,13 +28,6 @@ src/data/index.faiss
 src/data/meta.json
 src/data/state.json
 
-# === PYTHON BYTECODE ===
-__pycache__/
-*.pyc
-
-# === CACHE INSIDE MODULES ===
-src/**/__pycache__/
-
 # === UI COMPILER GENERATED FILES ===
 *_ui.py
 
@@ -31,30 +37,44 @@ src/**/__pycache__/
 # src/gui/components/*_ui.py
 # src/gui/scripts/ui_*.py
 
+# === SemantiSort Local Caches & Indexes ===
+# Exclude binary snapshots of the local file system
+*.pkl
+file_index.pkl
+folder_index.pkl
+plot.py
+
+# === Local Output & Personal Data ===
+benchmark_env/
+inbox
+env_
+sorted/
+
+# === Jupyter Notebook Checkpoints ===
+.ipynb_checkpoints/
+
+# === Python Egg Info ===
+*.egg-info/
+
+# === Coverage Reports ===
+.coverage
+
+# === Build Directories ===
+build/
+dist/
+
+# === Temporary Files ===
+*.tmp
+*.temp
+
+# === Backup Files ===
+*~
+*.bak
+*.swp
+*.swo
+
 # === OS/EDITOR SPECIFIC ===
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-# === Jupyter Notebook Checkpoints ===
-.ipynb_checkpoints/
-# === Python Virtual Environments ===
-venv/
-# === Python Egg Info ===
-*.egg-info/
-# === Coverage Reports ===
-.coverage
-# === Build Directories ===
-build/
-dist/
-# === Temporary Files ===
-*.tmp
-*.temp
-# === Backup Files ===
-*~
-# === Miscellaneous ===
-*.bak
-*.swp
-*.swo
-
-watcher_launch.log
