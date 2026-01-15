@@ -11,6 +11,7 @@ venv/
 *.pkl
 file_index.pkl
 folder_index.pkl
+plot.py
 
 # --- Local Output & Personal Data ---
 benchmark_env/
